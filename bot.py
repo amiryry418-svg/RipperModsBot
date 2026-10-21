@@ -12,7 +12,6 @@ ADMIN_USERNAME = "1808953401"
 CARD_NUMBER = "6219861804455185"
 CARD_HOLDER = "علیرضا عباس پور"
 BASE_GAME_LINK = "https://dl2.megadl.click/PS4-Hacked/GTAV/CUSA00419/BASE/"
-HTML_PAGE_URL = "https://rippermods-shop.freepage.cc/index.html"
 
 # 👈 لیست رمزها (باید دقیقاً با لیست داخل HTML یکی باشه)
 PASSWORD_POOL = [
@@ -41,7 +40,7 @@ PRODUCTS = {
         "name": "سوپر پک",
         "price": "799,000 تومان",
         "photo": "https://s50.uupload.ir/files/rippermodsgtavv100/Amir/IMG_20261021_205811_651.jpg",
-        "link": HTML_PAGE_URL,
+        "link": "", # اینجا دیگه لینک نمی‌خوایم
         "caption": "🎮 سوپر پک GTA V\n\nشامل تمام ماشین‌های لوکس و اسپرت (بوگاتی، لامبورگینی و...)\n\n💰 قیمت: 799,000 تومان",
         "is_active": True
     }
@@ -120,9 +119,9 @@ async def handle_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ لطفاً فقط عکس رسید را ارسال کنید.")
         return
     user = update.effective_user
-    keyboard = [[InlineKeyboardButton("✅ تایید و ارسال لینک", callback_data=f'approve_{user.id}')], [InlineKeyboardButton("❌ رد", callback_data=f'reject_{user.id}')]]
+    keyboard = [[InlineKeyboardButton("✅ تایید و ارسال فایل", callback_data=f'approve_{user.id}')], [InlineKeyboardButton("❌ رد", callback_data=f'reject_{user.id}')]]
     await context.bot.send_photo(chat_id=ADMIN_USERNAME, photo=update.message.photo[-1].file_id, caption=f"رسید جدید از: {user.first_name} (@{user.username or 'بدون آیدی'})", reply_markup=InlineKeyboardMarkup(keyboard))
-    await update.message.reply_text("✅ رسید شما دریافت شد. پس از تایید، لینک ارسال می‌شود.")
+    await update.message.reply_text("✅ رسید شما دریافت شد. پس از تایید، فایل برای شما ارسال می‌شود.")
 
 async def handle_support_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get('support_mode'):
@@ -148,15 +147,19 @@ async def admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_caption(caption="❌ لیست رمزها تموم شده! لطفاً رمز جدید به لیست اضافه کنید.")
             return
         
-        await context.bot.send_message(
-            chat_id=user_id,
-            text=f"✅ پرداخت تایید شد!\n\n"
-                 f"🔑 **رمز شما:** `{password}`\n\n"
-                 f"🔗 **لینک:**\n{HTML_PAGE_URL}\n\n"
-                 f"⚠️ این رمز فقط یک بار قابل استفاده است.",
-            parse_mode='Markdown'
-        )
-        await query.edit_message_caption(caption=f"✅ تایید شد. رمز ارسال شده: {password}")
+        # 👈 ارسال فایل HTML به همراه رمز (فرض می‌کنیم فایل index.html توی روت پروژه هست)
+        try:
+            with open('index.html', 'rb') as f:
+                await context.bot.send_document(
+                    chat_id=user_id,
+                    document=f,
+                    filename=f"RipperMods_{password}.html",
+                    caption=f"✅ پرداخت تایید شد!\n\n🔑 **رمز شما:** `{password}`\n\n📥 فایل HTML را دانلود کنید و با مرورگر گوشی باز کنید."
+                )
+            await query.edit_message_caption(caption=f"✅ تایید شد. فایل با رمز {password} ارسال شد.")
+        except FileNotFoundError:
+            await context.bot.send_message(chat_id=user_id, text="❌ خطا: فایل HTML پیدا نشد. لطفاً با پشتیبانی تماس بگیرید.")
+            await query.edit_message_caption(caption="❌ خطا: فایل index.html پیدا نشد.")
         
     elif data.startswith('reject_'):
         user_id = int(data.replace('reject_', ''))
