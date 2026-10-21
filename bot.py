@@ -9,12 +9,13 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
 # --- تنظیمات ---
-TOKEN = "8789507883:AAGrh6L5HXRgfKW18EM1uCYz-mGHLkVXwug"  # 👈 توکن خودت
+TOKEN = "8789507883:AAGrh6L5HXRgfKW18EM1uCYz-mGHLkVXwug"  # 👈 توکن ربات
 ADMIN_USERNAME = "1808953401"    # 👈 آیدی عددی ادمین
 CARD_NUMBER = "6219861804455185"
 CARD_HOLDER = "علیرضا عباس پور"
 BASE_GAME_LINK = "https://dl2.megadl.click/PS4-Hacked/GTAV/CUSA00419/BASE/"
 
+# 👇 آدرس هاست خودت
 SERVER_URL = "https://rippermods-shop.freepage.cc/check_password.php" 
 HTML_PAGE_URL = "https://rippermods-shop.freepage.cc/index.html"
 
@@ -39,6 +40,7 @@ PRODUCTS = {
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
+# --- وب‌سرور برای Render ---
 app = Flask(__name__)
 
 @app.route('/')
@@ -49,6 +51,7 @@ def run_flask():
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
 
+# --- توابع ربات ---
 def send_password_to_server(password):
     try:
         response = requests.post(SERVER_URL, json={"action": "save", "password": password}, timeout=10)
@@ -90,9 +93,27 @@ async def pay_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     product_key = query.data.replace('pay_', '')
     product = PRODUCTS[product_key]
-    text = (f"شما {product['name']} را انتخاب کردید.\n\n💰 مبلغ: {product['price']}\n💳 شماره کارت:\n`{CARD_NUMBER}`\n👤 به نام: {CARD_HOLDER}\n\n📸 **عکس رسید** را ارسال کنید.\n\n⚠️ دانلود بیس بازی الزامی است.")
+    
+    text = (
+        f"شما {product['name']} را انتخاب کردید.\n\n"
+        f"💰 مبلغ: {product['price']}\n"
+        f"💳 لطفاً مبلغ را به شماره کارت زیر واریز کنید:\n"
+        f"`{CARD_NUMBER}`\n"
+        f"👤 به نام: {CARD_HOLDER}\n\n"
+        f"📸 سپس **عکس رسید** را همینجا ارسال کنید.\n\n"
+        f"⚠️ **یادآوری:** دانلود بیس بازی الزامی است."
+    )
     keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data='back_to_menu')]]
-    await query.edit_message_text(text=text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    # 👈 باگ پرداخت اینجا رفع شد (اول پاک کردن، بعد ارسال متنی جدید)
+    await query.message.delete()
+    await context.bot.send_message(
+        chat_id=query.message.chat_id,
+        text=text,
+        parse_mode='Markdown',
+        reply_markup=reply_markup
+    )
 
 async def handle_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.photo:
@@ -100,14 +121,12 @@ async def handle_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     user = update.effective_user
     keyboard = [[InlineKeyboardButton("✅ تایید و ارسال لینک", callback_data=f'approve_{user.id}')], [InlineKeyboardButton("❌ رد", callback_data=f'reject_{user.id}')]]
-    # 👈 تغییر اصلی اینجاست (حذف @ و f"")
     await context.bot.send_photo(chat_id=ADMIN_USERNAME, photo=update.message.photo[-1].file_id, caption=f"رسید جدید از: {user.first_name} (@{user.username or 'بدون آیدی'})", reply_markup=InlineKeyboardMarkup(keyboard))
     await update.message.reply_text("✅ رسید شما دریافت شد. پس از تایید، لینک ارسال می‌شود.")
 
 async def handle_support_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get('support_mode'):
         user = update.effective_user
-        # 👈 تغییر اصلی اینجاست (حذف @ و f"")
         await context.bot.send_message(chat_id=ADMIN_USERNAME, text=f"📩 پیام پشتیبانی از: {user.first_name} (@{user.username or 'بدون آیدی'})\n\n{update.message.text}")
         await update.message.reply_text("✅ پیام شما دریافت شد. تیم پشتیبانی پاسخ می‌دهد.")
         context.user_data['support_mode'] = False
@@ -144,7 +163,10 @@ async def back_to_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text("لطفاً یکی از پک‌های زیر را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(keyboard))
 
 def main():
+    # راه‌اندازی وب‌سرور برای Render در پس‌زمینه
     threading.Thread(target=run_flask, daemon=True).start()
+    
+    # شروع ربات تلگرام
     application = Application.builder().token(TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
@@ -152,6 +174,7 @@ def main():
     application.add_handler(CallbackQueryHandler(pay_handler, pattern='^pay_'))
     application.add_handler(CallbackQueryHandler(admin_action, pattern='^approve_|^reject_'))
     application.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_to_menu'))
+    
     application.add_handler(MessageHandler(filters.PHOTO, handle_receipt))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_support_message))
 
