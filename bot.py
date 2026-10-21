@@ -15,7 +15,7 @@ CARD_NUMBER = "6219861804455185"
 CARD_HOLDER = "علیرضا عباس پور"
 BASE_GAME_LINK = "https://dl2.megadl.click/PS4-Hacked/GTAV/CUSA00419/BASE/"
 
-# 👇 آدرس هاست خودت رو اینجا بذار (بدون تغییر بمونه)
+# 👇 آدرس هاست خودت
 SERVER_URL = "https://rippermods.infinityfreeapp.com/check_password.php" 
 HTML_PAGE_URL = "https://rippermods.infinityfreeapp.com/index.html"
 
@@ -93,9 +93,27 @@ async def pay_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     product_key = query.data.replace('pay_', '')
     product = PRODUCTS[product_key]
-    text = (f"شما {product['name']} را انتخاب کردید.\n\n💰 مبلغ: {product['price']}\n💳 شماره کارت:\n`{CARD_NUMBER}`\n👤 به نام: {CARD_HOLDER}\n\n📸 **عکس رسید** را ارسال کنید.\n\n⚠️ دانلود بیس بازی الزامی است.")
+    
+    text = (
+        f"شما {product['name']} را انتخاب کردید.\n\n"
+        f"💰 مبلغ: {product['price']}\n"
+        f"💳 لطفاً مبلغ را به شماره کارت زیر واریز کنید:\n"
+        f"`{CARD_NUMBER}`\n"
+        f"👤 به نام: {CARD_HOLDER}\n\n"
+        f"📸 سپس **عکس رسید** را همینجا ارسال کنید.\n\n"
+        f"⚠️ **یادآوری:** دانلود بیس بازی الزامی است."
+    )
     keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data='back_to_menu')]]
-    await query.edit_message_text(text=text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    # 👈 باگ پرداخت اینجا رفع شد (اول پاک کردن، بعد ارسال متنی جدید)
+    await query.message.delete()
+    await context.bot.send_message(
+        chat_id=query.message.chat_id,
+        text=text,
+        parse_mode='Markdown',
+        reply_markup=reply_markup
+    )
 
 async def handle_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.photo:
