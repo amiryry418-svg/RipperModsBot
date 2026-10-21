@@ -1,6 +1,4 @@
 import logging
-import secrets
-import string
 import requests
 import threading
 import os
@@ -9,15 +7,26 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
 # --- تنظیمات ---
-TOKEN = "8789507883:AAGrh6L5HXRgfKW18EM1uCYz-mGHLkVXwug"  # 👈 توکن ربات
-ADMIN_USERNAME = "1808953401"    # 👈 آیدی عددی ادمین
+TOKEN = "8789507883:AAGrh6L5HXRgfKW18EM1uCYz-mGHLkVXwug" 
+ADMIN_USERNAME = "1808953401"    
 CARD_NUMBER = "6219861804455185"
 CARD_HOLDER = "علیرضا عباس پور"
 BASE_GAME_LINK = "https://dl2.megadl.click/PS4-Hacked/GTAV/CUSA00419/BASE/"
-
-# 👇 آدرس هاست خودت
-SERVER_URL = "https://rippermods-shop.freepage.cc/check_password.php" 
 HTML_PAGE_URL = "https://rippermods-shop.freepage.cc/index.html"
+
+# 👈 لیست رمزها (باید دقیقاً با لیست داخل HTML یکی باشه)
+PASSWORD_POOL = [
+    "RipA1b2", "RipC3d4", "RipE5f6", "RipG7h8", "RipI9j0",
+    "ModA1b2", "ModC3d4", "ModE5f6", "ModG7h8", "ModI9j0",
+    "GTAa1b2", "GTAc3d4", "GTAe5f6", "GTAg7h8", "GTAi9j0",
+    "ShopA1b2", "ShopC3d4", "ShopE5f6", "ShopG7h8", "ShopI9j0",
+    "VipA1b2", "VipC3d4", "VipE5f6", "VipG7h8", "VipI9j0",
+    "ProA1b2", "ProC3d4", "ProE5f6", "ProG7h8", "ProI9j0",
+    "FastA1b2", "FastC3d4", "FastE5f6", "FastG7h8", "FastI9j0",
+    "CoolA1b2", "CoolC3d4", "CoolE5f6", "CoolG7h8", "CoolI9j0",
+    "StarA1b2", "StarC3d4", "StarE5f6", "StarG7h8", "StarI9j0",
+    "GoldA1b2", "GoldC3d4", "GoldE5f6", "GoldG7h8", "GoldI9j0"
+]
 
 PRODUCTS = {
     "pack_irani": {
@@ -52,14 +61,6 @@ def run_flask():
     app.run(host='0.0.0.0', port=port)
 
 # --- توابع ربات ---
-def send_password_to_server(password):
-    try:
-        response = requests.post(SERVER_URL, json={"action": "save", "password": password}, timeout=10)
-        return response.status_code == 200
-    except Exception as e:
-        print(f"خطا: {e}")
-        return False
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("🇮🇷 پک ایرانیزه", callback_data='buy_pack_irani')],
@@ -106,7 +107,6 @@ async def pay_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data='back_to_menu')]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    # 👈 باگ پرداخت اینجا رفع شد (اول پاک کردن، بعد ارسال متنی جدید)
     await query.message.delete()
     await context.bot.send_message(
         chat_id=query.message.chat_id,
@@ -137,15 +137,27 @@ async def admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
+    
     if data.startswith('approve_'):
         user_id = int(data.replace('approve_', ''))
-        alphabet = string.ascii_letters + string.digits
-        password = ''.join(secrets.choice(alphabet) for _ in range(8))
-        if send_password_to_server(password):
-            await context.bot.send_message(chat_id=user_id, text=f"✅ پرداخت تایید شد!\n\n🔑 **رمز شما:** `{password}`\n\n🔗 **لینک:**\n{HTML_PAGE_URL}\n\n⚠️ رمز فقط یک بار قابل استفاده است.", parse_mode='Markdown')
-            await query.edit_message_caption(caption="✅ تایید شد و رمز ارسال گردید.")
+        
+        # 👈 برداشتن اولین رمز از لیست
+        if PASSWORD_POOL:
+            password = PASSWORD_POOL.pop(0)
         else:
-            await query.edit_message_caption(caption="❌ خطا در ارسال به سرور.")
+            await query.edit_message_caption(caption="❌ لیست رمزها تموم شده! لطفاً رمز جدید به لیست اضافه کنید.")
+            return
+        
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=f"✅ پرداخت تایید شد!\n\n"
+                 f"🔑 **رمز شما:** `{password}`\n\n"
+                 f"🔗 **لینک:**\n{HTML_PAGE_URL}\n\n"
+                 f"⚠️ این رمز فقط یک بار قابل استفاده است.",
+            parse_mode='Markdown'
+        )
+        await query.edit_message_caption(caption=f"✅ تایید شد. رمز ارسال شده: {password}")
+        
     elif data.startswith('reject_'):
         user_id = int(data.replace('reject_', ''))
         await context.bot.send_message(chat_id=user_id, text="❌ رسید شما رد شد.")
@@ -163,10 +175,7 @@ async def back_to_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text("لطفاً یکی از پک‌های زیر را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(keyboard))
 
 def main():
-    # راه‌اندازی وب‌سرور برای Render در پس‌زمینه
     threading.Thread(target=run_flask, daemon=True).start()
-    
-    # شروع ربات تلگرام
     application = Application.builder().token(TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
@@ -174,7 +183,6 @@ def main():
     application.add_handler(CallbackQueryHandler(pay_handler, pattern='^pay_'))
     application.add_handler(CallbackQueryHandler(admin_action, pattern='^approve_|^reject_'))
     application.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_to_menu'))
-    
     application.add_handler(MessageHandler(filters.PHOTO, handle_receipt))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_support_message))
 
