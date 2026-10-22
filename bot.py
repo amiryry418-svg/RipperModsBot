@@ -8,7 +8,6 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Mess
 # --- تنظیمات ---
 TOKEN = "8789507883:AAGrh6L5HXRgfKW18EM1uCYz-mGHLkVXwug" 
 ADMIN_USERNAME = "8854352160"    # 👈 آیدی عددی ادمین
-CHANNEL_USERNAME = "@Rippermods" # 👈 آیدی کانال (با @)
 CARD_NUMBER = "6219861804455185"
 CARD_HOLDER = "علیرضا عباس پور"
 BASE_GAME_LINK = "https://dl2.megadl.click/PS4-Hacked/GTAV/CUSA00419/BASE/"
@@ -56,54 +55,23 @@ def run_flask():
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
 
-# --- توابع ---
+# --- منوی اصلی ---
 def main_menu_keyboard():
     return [
         [InlineKeyboardButton("🎮 سوپر پک", callback_data='buy_pack_super'), InlineKeyboardButton("🇮🇷 پک ایرانیزه", callback_data='buy_pack_irani')],
         [InlineKeyboardButton("📥 دانلود بیس بازی", callback_data='base_game'), InlineKeyboardButton("📞 پشتیبانی", callback_data='support')]
     ]
 
-# تابع چک کردن عضویت
-async def is_user_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    try:
-        member = await context.bot.get_chat_member(chat_id=CHANNEL_USERNAME, user_id=user_id)
-        if member.status in ['member', 'administrator', 'creator']:
-            return True
-        return False
-    except Exception:
-        return False
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # چک کردن عضویت
-    if not await is_user_member(update, context):
-        keyboard = [
-            [InlineKeyboardButton("📢 عضویت در کانال", url=f"https://t.me/{CHANNEL_USERNAME[1:]}")],
-            [InlineKeyboardButton("✅ عضو شدم، بررسی کن", callback_data='check_join')]
-        ]
-        await update.message.reply_text(
-            "⚠️ برای استفاده از ربات، ابتدا باید در کانال ما عضو شوید.",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
-    
-    await update.message.reply_text(
-        "سلام! به فروشگاه RipperMods خوش آمدید.\nلطفاً یکی از گزینه‌های زیر را انتخاب کنید:",
-        reply_markup=InlineKeyboardMarkup(main_menu_keyboard())
-    )
+    # 👈 عضویت اجباری کاملاً حذف شد
+    await update.message.reply_text("سلام! به فروشگاه RipperMods خوش آمدید.\nلطفاً یکی از گزینه‌های زیر را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(main_menu_keyboard()))
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    if query.data == 'check_join':
-        if await is_user_member(update, context):
-            await query.edit_message_text("✅ عضویت شما تایید شد! به منوی اصلی خوش آمدید.", reply_markup=InlineKeyboardMarkup(main_menu_keyboard()))
-        else:
-            await query.answer("❌ شما هنوز عضو کانال نشده‌اید!", show_alert=True)
-            
-    elif query.data == 'buy_pack_irani':
-        await query.answer("🚧 این پک در حال آپدیت است و فعلاً غیرفعال می‌باشد.", show_alert=True)
+    if query.data == 'buy_pack_irani':
+        await query.answer("🚧 این پک در حال آپدیت است.", show_alert=True)
     elif query.data == 'buy_pack_super':
         await send_product_info(query, 'pack_super')
     elif query.data == 'base_game':
@@ -141,7 +109,12 @@ async def handle_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     user = update.effective_user
     keyboard = [[InlineKeyboardButton("✅ تایید", callback_data=f'approve_{user.id}')], [InlineKeyboardButton("❌ رد", callback_data=f'reject_{user.id}')]]
-    await context.bot.send_photo(chat_id=ADMIN_USERNAME, photo=update.message.photo[-1].file_id, caption=f"رسید جدید از: {user.first_name} (@{user.username or 'بدون آیدی'})", reply_markup=InlineKeyboardMarkup(keyboard))
+    await context.bot.send_photo(
+        chat_id=ADMIN_USERNAME, 
+        photo=update.message.photo[-1].file_id, 
+        caption=f"رسید جدید از: {user.first_name} (@{user.username or 'بدون آیدی'})", 
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
     await update.message.reply_text("✅ رسید شما دریافت شد. منتظر تایید باشید.")
 
 async def handle_support_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -188,7 +161,7 @@ def main():
     application = Application.builder().token(TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(button_handler, pattern='^check_join|^buy_|^support|^base_game'))
+    application.add_handler(CallbackQueryHandler(button_handler, pattern='^buy_|^support|^base_game'))
     application.add_handler(CallbackQueryHandler(pay_handler, pattern='^pay_'))
     application.add_handler(CallbackQueryHandler(admin_action, pattern='^approve_|^reject_'))
     application.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_to_menu'))
