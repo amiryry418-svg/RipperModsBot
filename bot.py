@@ -12,6 +12,8 @@ TOKEN = "8789507883:AAH1O5TTOoBI46e77lj958dwU8BR1vC8hN4"
 ADMIN_MAIN_ID = "1808953401"    
 ADMIN_PORT_ID = "1891282471"    
 
+CHANNEL_USERNAME = "@Rippermods" 
+
 CARD_NUMBER = "6219861804455185"
 CARD_HOLDER = "علیرضا عباس پور"
 BASE_GAME_LINK = "https://dl2.megadl.click/PS4-Hacked/GTAV/CUSA00419/BASE/"
@@ -60,9 +62,35 @@ def products_keyboard():
         [InlineKeyboardButton("🔙 بازگشت به فروشگاه", callback_data='shop_menu')]
     ]
 
+# 👈 تابع بررسی عضویت
+async def is_user_member(user_id, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        member = await context.bot.get_chat_member(chat_id=CHANNEL_USERNAME, user_id=user_id)
+        if member.status in ['member', 'administrator', 'creator']:
+            return True
+        return False
+    except Exception as e:
+        print(f"Error checking membership: {e}")
+        return False
+
 # --- استارت ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear() 
+    user_id = update.effective_user.id
+    
+    # 👈 بررسی عضویت فقط همینجا
+    if not await is_user_member(user_id, context):
+        join_text = (
+            "⚠️ **برای استفاده از ربات، ابتدا باید در کانال ما عضو شوید.**\n\n"
+            "لطفاً روی دکمه زیر کلیک کنید، عضو کانال شوید و سپس دکمه تایید را بزنید."
+        )
+        keyboard = [
+            [InlineKeyboardButton("📢 عضویت در کانال", url="https://t.me/Rippermods")],
+            [InlineKeyboardButton("✅ عضو شدم، بررسی کن", callback_data='check_join')]
+        ]
+        await update.message.reply_text(join_text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+
     welcome_text = (
         "🎮 **به فروشگاه RipperMods خوش آمدید!**\n\n"
         "ما اینجا هستیم تا تجربه بازی شما رو متفاوت‌تر کنیم. 🚀\n\n"
@@ -73,12 +101,31 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_photo(photo=WELCOME_PHOTO, caption=welcome_text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(main_menu_keyboard()))
 
-# --- هندلر دکمه‌ها (همه با پیام جدید کار میکنن تا کرش نشن) ---
+# --- هندلر دکمه‌ها ---
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     chat_id = query.message.chat_id
+    user_id = query.from_user.id
     
+    # 👈 دکمه بررسی عضویت
+    if query.data == 'check_join':
+        if await is_user_member(user_id, context):
+            welcome_text = (
+                "🎮 **به فروشگاه RipperMods خوش آمدید!**\n\n"
+                "ما اینجا هستیم تا تجربه بازی شما رو متفاوت‌تر کنیم. 🚀\n\n"
+                "🔹 **خرید پک‌های حرفه‌ای GTA V**\n"
+                "🔹 **ساخت پک اختصاصی (دلخواه)**\n"
+                "🔹 **پورت بازی‌های نوستالژی**\n\n"
+                "👇 برای شروع، روی دکمه‌های زیر کلیک کنید:"
+            )
+            await context.bot.send_photo(chat_id=chat_id, photo=WELCOME_PHOTO, caption=welcome_text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(main_menu_keyboard()))
+            try: await query.message.delete()
+            except: pass
+        else:
+            await query.answer("❌ شما هنوز عضو کانال نشده‌اید!", show_alert=True)
+        return
+
     if query.data == 'shop_menu':
         await context.bot.send_message(chat_id=chat_id, text="🛒 **به فروشگاه خوش آمدید!**\n\nچه کاری می‌خواهید انجام دهید؟", parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(shop_menu_keyboard()))
     
@@ -96,7 +143,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("🚧 در حال آپدیت.", show_alert=True)
     
     elif query.data == 'buy_pack_super': 
-        # ارسال عکس و دکمه‌های محصول
         keyboard = [
             [InlineKeyboardButton("🎟 وارد کردن کد تخفیف", callback_data='enter_discount')],
             [InlineKeyboardButton("💳 خرید و پرداخت", callback_data='pay_super')],
@@ -115,7 +161,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['awaiting_service'] = "پورت بازی‌های نوستالژی"
         await context.bot.send_message(chat_id=chat_id, text="🕹 **سفارش پورت نوستالژی**\n\nلطفاً نام بازی و کنسول مقصد را ارسال کنید.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 لغو", callback_data='shop_menu')]]))
 
-    # دکمه‌های داخل صفحه محصول (همه پیام جدید میفرستن)
     elif query.data == 'enter_discount':
         context.user_data['awaiting_discount'] = True
         await context.bot.send_message(chat_id=chat_id, text="🎟 **لطفاً کد تخفیف خود را ارسال کنید:**", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 لغو", callback_data='back_to_product')]]))
@@ -145,8 +190,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.photo: return
     user = update.effective_user
-    keyboard = [[InlineKeyboardButton("✅ تایید", callback_data=f'approve_{user.id}')], [InlineKeyboardButton("❌ رد", callback_data=f'reject_{user.id}')]]
-    await context.bot.send_photo(chat_id=ADMIN_MAIN_ID, photo=update.message.photo[-1].file_id, caption=f"رسید جدید از: {user.first_name} (@{user.username or 'بدون آیدی'})\n\nUser ID: {user.id}", reply_markup=InlineKeyboardMarkup(keyboard))
+    
+    # 👈 ارسال رسید همراه با اطلاعات کامل به ادمین
+    keyboard = [
+        [InlineKeyboardButton("✅ تایید", callback_data=f'approve_{user.id}')], 
+        [InlineKeyboardButton("❌ رد", callback_data=f'reject_{user.id}')]
+    ]
+    await context.bot.send_photo(
+        chat_id=ADMIN_MAIN_ID, 
+        photo=update.message.photo[-1].file_id, 
+        caption=f"📥 **رسید جدید**\n\n👤 کاربر: {user.first_name}\n🆔 آیدی عددی: `{user.id}`\n🌐 یوزرنیم: @{user.username or 'بدون آیدی'}\n\n🕒 زمان ارسال: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}", 
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
     await update.message.reply_text("✅ رسید دریافت شد. منتظر تایید باشید.")
 
 async def handle_text_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -168,7 +224,6 @@ async def handle_text_messages(update: Update, context: ContextTypes.DEFAULT_TYP
         else:
             await update.message.reply_text("❌ کد تخفیف نامعتبر است.")
         
-        # نمایش دوباره محصول با قیمت جدید
         price = 799000 - DISCOUNT_AMOUNT if context.user_data.get('discount_applied') else 799000
         keyboard = [
             [InlineKeyboardButton("🎟 وارد کردن کد تخفیف", callback_data='enter_discount')],
@@ -206,22 +261,49 @@ async def handle_admin_reply_text(update: Update, context: ContextTypes.DEFAULT_
         await update.message.reply_text("✅ ارسال شد.")
         context.user_data['reply_to'] = None
 
+# 👈 تابع تایید و رد ادمین (با ذخیره رسید)
 async def admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
+    
     if data.startswith('approve_') or data.startswith('sendlink_'):
         user_id = int(data.split('_')[1])
+        
         VERIFIED_BUYERS.add(user_id)
-        sent_msg = await context.bot.send_message(chat_id=user_id, text=f"✅ **لینک:** {DIRECT_DOWNLOAD_LINK}\n🔑 **رمز:** `{UPLOAD_PASSWORD}`\n\n⚠️ ۳۰ ثانیه فرصت دارید.", parse_mode='Markdown')
+        
+        sent_msg = await context.bot.send_message(
+            chat_id=user_id, 
+            text=f"✅ **لینک:** {DIRECT_DOWNLOAD_LINK}\n🔑 **رمز:** `{UPLOAD_PASSWORD}`\n\n⚠️ ۳۰ ثانیه فرصت دارید.", 
+            parse_mode='Markdown'
+        )
         await asyncio.sleep(30)
         try: await context.bot.delete_message(chat_id=user_id, message_id=sent_msg.message_id)
         except: pass
-        await query.edit_message_text("✅ لینک ارسال شد.")
+        
+        # 👈 ذخیره رسید: تغییر کپشن به جای پاک کردن
+        try:
+            await query.edit_message_caption(
+                caption=f"✅ **تایید شده**\n\n🆔 آیدی کاربر: `{user_id}`\n👤 وضعیت: لینک ارسال شد.",
+                parse_mode='Markdown',
+                reply_markup=None
+            )
+        except Exception as e:
+            print(f"Error updating caption: {e}")
+            
     elif data.startswith('reject_'):
         user_id = int(data.replace('reject_', ''))
-        await context.bot.send_message(chat_id=user_id, text="❌ رد شد.")
-        await query.edit_message_caption(caption="❌ رد شد.")
+        await context.bot.send_message(chat_id=user_id, text="❌ رسید شما رد شد.")
+        
+        # 👈 ذخیره رسید: تغییر کپشن به جای پاک کردن
+        try:
+            await query.edit_message_caption(
+                caption=f"❌ **رد شده**\n\n🆔 آیدی کاربر: `{user_id}`\n👤 وضعیت: رسید رد شد.",
+                parse_mode='Markdown',
+                reply_markup=None
+            )
+        except Exception as e:
+            print(f"Error updating caption: {e}")
 
 # --- راه‌اندازی ---
 def main():
