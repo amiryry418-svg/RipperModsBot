@@ -62,7 +62,7 @@ def products_keyboard():
         [InlineKeyboardButton("🔙 بازگشت به فروشگاه", callback_data='shop_menu')]
     ]
 
-# 👈 تابع بررسی عضویت
+# 👈 بررسی عضویت
 async def is_user_member(user_id, context: ContextTypes.DEFAULT_TYPE):
     try:
         member = await context.bot.get_chat_member(chat_id=CHANNEL_USERNAME, user_id=user_id)
@@ -202,8 +202,23 @@ async def handle_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text("✅ رسید دریافت شد. منتظر تایید باشید.")
 
+# 👈 تابع اصلی دریافت پیام‌های متنی (با قابلیت پاسخ ادمین)
 async def handle_text_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+    
+    # اگر ادمین داره پاسخ میده
+    if context.user_data.get('reply_to'):
+        target_user_id = context.user_data.get('reply_to')
+        try:
+            await context.bot.send_message(chat_id=target_user_id, text=f"📬 **پاسخ پشتیبانی:**\n\n{update.message.text}")
+            await update.message.reply_text("✅ پاسخ شما برای کاربر ارسال شد.")
+        except Exception as e:
+            await update.message.reply_text(f"❌ خطا در ارسال پاسخ: {e}")
+        finally:
+            context.user_data['reply_to'] = None
+        return
+
+    # اگر کاربر عادی داره پیام میده
     if context.user_data.get('support_mode'):
         keyboard = [[InlineKeyboardButton("✍️ پاسخ", callback_data=f'reply_{user.id}')]]
         await context.bot.send_message(chat_id=ADMIN_MAIN_ID, text=f"📩 پشتیبانی از {user.first_name}:\n{update.message.text}", reply_markup=InlineKeyboardMarkup(keyboard))
@@ -251,14 +266,6 @@ async def admin_reply_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
         context.user_data['reply_to'] = None
         await query.edit_message_text(text="❌ لغو شد.")
 
-async def handle_admin_reply_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = context.user_data.get('reply_to')
-    if user_id:
-        await context.bot.send_message(chat_id=user_id, text=f"📬 **پاسخ:**\n{update.message.text}")
-        await update.message.reply_text("✅ ارسال شد.")
-        context.user_data['reply_to'] = None
-
-# 👈 تابع تایید و رد ادمین (با تسک پس‌زمینه برای حذف لینک)
 async def admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -269,37 +276,28 @@ async def admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         VERIFIED_BUYERS.add(user_id)
         
-        # ۱. ارسال لینک و رمز به خریدار
         sent_msg = await context.bot.send_message(
             chat_id=user_id, 
-            text=f"✅ **لینک:** {DIRECT_DOWNLOAD_LINK}\n🔑 **رمز:** `{UPLOAD_PASSWORD}`\n\n⚠️ **هشدار:** این پیام ۳۰ ثانیه دیگر به صورت خودکار حذف می‌شود. لطفاً همین الان لینک را کپی کنید.", 
+            text=f"✅ **لینک:** {DIRECT_DOWNLOAD_LINK}\n🔑 **رمز:** `{UPLOAD_PASSWORD}`\n\n⚠️ **هشدار:** این پیام ۳۰ ثانیه دیگر حذف می‌شود.", 
             parse_mode='Markdown'
         )
         
-        # ۲. ثبت پیام تایید برای ادمین (بدون دست زدن به عکس)
         await context.bot.send_message(
             chat_id=query.message.chat_id,
-            text=f"✅ **رسید کاربر `{user_id}` تایید شد.**\n\nلینک ارسال شد و پس از ۳۰ ثانیه از چت کاربر حذف خواهد شد.",
+            text=f"✅ **رسید کاربر `{user_id}` تایید شد.**",
             parse_mode='Markdown'
         )
 
-        # ۳. پاک کردن لینک بعد از ۳۰ ثانیه در پس‌زمینه (بدون قفل شدن ربات)
         async def delete_later():
             await asyncio.sleep(30)
-            try: 
-                await context.bot.delete_message(chat_id=user_id, message_id=sent_msg.message_id)
-            except: 
-                pass
+            try: await context.bot.delete_message(chat_id=user_id, message_id=sent_msg.message_id)
+            except: pass
                 
         asyncio.create_task(delete_later())
             
     elif data.startswith('reject_'):
         user_id = int(data.replace('reject_', ''))
-        
-        # ۱. ارسال پیام رد به کاربر
         await context.bot.send_message(chat_id=user_id, text="❌ رسید شما رد شد.")
-        
-        # ۲. ثبت پیام رد برای ادمین
         await context.bot.send_message(
             chat_id=query.message.chat_id,
             text=f"❌ **رسید کاربر `{user_id}` رد شد.**",
@@ -317,13 +315,8 @@ def main():
     application.add_handler(CallbackQueryHandler(admin_reply_button, pattern='^reply_|^cancel_reply'))
     application.add_handler(MessageHandler(filters.PHOTO, handle_receipt))
     
-    async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        if context.user_data.get('reply_to'):
-            await handle_admin_reply_text(update, context)
-        else:
-            await handle_text_messages(update, context)
-            
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_router))
+    # 👈 فقط یک هندلر ساده برای پیام‌های متنی
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_messages))
 
     print("ربات روشن شد...")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
