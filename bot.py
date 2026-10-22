@@ -1,5 +1,4 @@
 import logging
-import requests
 import threading
 import os
 from flask import Flask
@@ -8,13 +7,13 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Mess
 
 # --- تنظیمات ---
 TOKEN = "8789507883:AAGrh6L5HXRgfKW18EM1uCYz-mGHLkVXwug" 
-ADMIN_USERNAME = "1808953401"    
+ADMIN_USERNAME = "8854352160"    # 👈 آیدی عددی ادمین
+CHANNEL_USERNAME = "@Rippermods" # 👈 آیدی کانال (با @)
 CARD_NUMBER = "6219861804455185"
 CARD_HOLDER = "علیرضا عباس پور"
 BASE_GAME_LINK = "https://dl2.megadl.click/PS4-Hacked/GTAV/CUSA00419/BASE/"
-HTML_PAGE_URL = "https://magical-melba-f9c075.netlify.app"
+HTML_PAGE_URL = "https://magical-melba-f9c075.netlify.app" 
 
-# 👈 لیست رمزها (باید دقیقاً با لیست داخل HTML یکی باشه)
 PASSWORD_POOL = [
     "RipA1b2", "RipC3d4", "RipE5f6", "RipG7h8", "RipI9j0",
     "ModA1b2", "ModC3d4", "ModE5f6", "ModG7h8", "ModI9j0",
@@ -33,7 +32,6 @@ PRODUCTS = {
         "name": "پک ایرانیزه",
         "price": "398,000 تومان",
         "photo": "https://s31.uupload.ir/files/rippermodsgtavv100/Amir/4/IMG_20261021_205807_285.jpg",
-        "link": "",
         "caption": "🎮 پک ایرانیزه GTA V\n\nشامل ماشین‌های ایرانی (پژو، پراید، سمند و...)\n\n💰 قیمت: 398,000 تومان",
         "is_active": False
     },
@@ -41,7 +39,6 @@ PRODUCTS = {
         "name": "سوپر پک",
         "price": "799,000 تومان",
         "photo": "https://s50.uupload.ir/files/rippermodsgtavv100/Amir/IMG_20261021_205811_651.jpg",
-        "link": HTML_PAGE_URL, # لینک صفحه HTML
         "caption": "🎮 سوپر پک GTA V\n\nشامل تمام ماشین‌های لوکس و اسپرت (بوگاتی، لامبورگینی و...)\n\n💰 قیمت: 799,000 تومان",
         "is_active": True
     }
@@ -49,7 +46,6 @@ PRODUCTS = {
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-# --- وب‌سرور برای Render ---
 app = Flask(__name__)
 
 @app.route('/')
@@ -60,33 +56,66 @@ def run_flask():
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
 
-# --- توابع ربات ---
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [InlineKeyboardButton("🇮🇷 پک ایرانیزه", callback_data='buy_pack_irani')],
-        [InlineKeyboardButton("🏎️ سوپر پک", callback_data='buy_pack_super')],
-        [InlineKeyboardButton("📥 دانلود بیس بازی (الزامی)", callback_data='base_game')],
-        [InlineKeyboardButton("📞 پشتیبانی", callback_data='support')]
+# --- توابع ---
+def main_menu_keyboard():
+    return [
+        [InlineKeyboardButton("🎮 سوپر پک", callback_data='buy_pack_super'), InlineKeyboardButton("🇮🇷 پک ایرانیزه", callback_data='buy_pack_irani')],
+        [InlineKeyboardButton("📥 دانلود بیس بازی", callback_data='base_game'), InlineKeyboardButton("📞 پشتیبانی", callback_data='support')]
     ]
-    await update.message.reply_text("سلام! به فروشگاه RipperMods خوش آمدید.\nلطفاً یکی از پک‌های زیر را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(keyboard))
+
+# تابع چک کردن عضویت
+async def is_user_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    try:
+        member = await context.bot.get_chat_member(chat_id=CHANNEL_USERNAME, user_id=user_id)
+        if member.status in ['member', 'administrator', 'creator']:
+            return True
+        return False
+    except Exception:
+        return False
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # چک کردن عضویت
+    if not await is_user_member(update, context):
+        keyboard = [
+            [InlineKeyboardButton("📢 عضویت در کانال", url=f"https://t.me/{CHANNEL_USERNAME[1:]}")],
+            [InlineKeyboardButton("✅ عضو شدم، بررسی کن", callback_data='check_join')]
+        ]
+        await update.message.reply_text(
+            "⚠️ برای استفاده از ربات، ابتدا باید در کانال ما عضو شوید.",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+    
+    await update.message.reply_text(
+        "سلام! به فروشگاه RipperMods خوش آمدید.\nلطفاً یکی از گزینه‌های زیر را انتخاب کنید:",
+        reply_markup=InlineKeyboardMarkup(main_menu_keyboard())
+    )
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    if query.data == 'buy_pack_irani':
+    
+    if query.data == 'check_join':
+        if await is_user_member(update, context):
+            await query.edit_message_text("✅ عضویت شما تایید شد! به منوی اصلی خوش آمدید.", reply_markup=InlineKeyboardMarkup(main_menu_keyboard()))
+        else:
+            await query.answer("❌ شما هنوز عضو کانال نشده‌اید!", show_alert=True)
+            
+    elif query.data == 'buy_pack_irani':
         await query.answer("🚧 این پک در حال آپدیت است و فعلاً غیرفعال می‌باشد.", show_alert=True)
     elif query.data == 'buy_pack_super':
         await send_product_info(query, 'pack_super')
     elif query.data == 'base_game':
-        await query.edit_message_text(text=f"📥 **دانلود بیس بازی (الزامی)**\n\n⚠️ برای نصب، ابتدا بیس بازی را دانلود کنید.\n\n🔗 لینک:\n`{BASE_GAME_LINK}`", parse_mode='Markdown')
+        await query.edit_message_text(text=f"📥 **دانلود بیس بازی (الزامی)**\n\n🔗 لینک:\n`{BASE_GAME_LINK}`", parse_mode='Markdown', reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data='back_to_menu')]]))
     elif query.data == 'support':
         context.user_data['support_mode'] = True
-        await query.edit_message_text("📞 **پشتیبانی**\n\nلطفاً مشکل یا سوال خود را بنویسید:", parse_mode='Markdown')
+        await query.edit_message_text("📞 **پشتیبانی**\n\nلطفاً مشکل خود را بنویسید:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data='back_to_menu')]]))
 
 async def send_product_info(query, product_key):
     product = PRODUCTS[product_key]
     keyboard = [[InlineKeyboardButton("💳 خرید و پرداخت", callback_data=f'pay_{product_key}')], [InlineKeyboardButton("🔙 بازگشت", callback_data='back_to_menu')]]
-    await query.message.reply_photo(photo=product['photo'], caption=product['caption'] + "\n\n⚠️ **توجه:** دانلود بیس بازی الزامی است.", reply_markup=InlineKeyboardMarkup(keyboard))
+    await query.message.reply_photo(photo=product['photo'], caption=product['caption'], reply_markup=InlineKeyboardMarkup(keyboard))
     await query.message.delete()
 
 async def pay_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -98,37 +127,28 @@ async def pay_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         f"شما {product['name']} را انتخاب کردید.\n\n"
         f"💰 مبلغ: {product['price']}\n"
-        f"💳 لطفاً مبلغ را به شماره کارت زیر واریز کنید:\n"
-        f"`{CARD_NUMBER}`\n"
+        f"💳 شماره کارت:\n`{CARD_NUMBER}`\n"
         f"👤 به نام: {CARD_HOLDER}\n\n"
-        f"📸 سپس **عکس رسید** را همینجا ارسال کنید.\n\n"
-        f"⚠️ **یادآوری:** دانلود بیس بازی الزامی است."
+        f"📸 **عکس رسید** را ارسال کنید."
     )
     keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data='back_to_menu')]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
     await query.message.delete()
-    await context.bot.send_message(
-        chat_id=query.message.chat_id,
-        text=text,
-        parse_mode='Markdown',
-        reply_markup=reply_markup
-    )
+    await context.bot.send_message(chat_id=query.message.chat_id, text=text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def handle_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.photo:
         await update.message.reply_text("❌ لطفاً فقط عکس رسید را ارسال کنید.")
         return
     user = update.effective_user
-    keyboard = [[InlineKeyboardButton("✅ تایید و ارسال لینک", callback_data=f'approve_{user.id}')], [InlineKeyboardButton("❌ رد", callback_data=f'reject_{user.id}')]]
+    keyboard = [[InlineKeyboardButton("✅ تایید", callback_data=f'approve_{user.id}')], [InlineKeyboardButton("❌ رد", callback_data=f'reject_{user.id}')]]
     await context.bot.send_photo(chat_id=ADMIN_USERNAME, photo=update.message.photo[-1].file_id, caption=f"رسید جدید از: {user.first_name} (@{user.username or 'بدون آیدی'})", reply_markup=InlineKeyboardMarkup(keyboard))
-    await update.message.reply_text("✅ رسید شما دریافت شد. پس از تایید، لینک ارسال می‌شود.")
+    await update.message.reply_text("✅ رسید شما دریافت شد. منتظر تایید باشید.")
 
 async def handle_support_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get('support_mode'):
         user = update.effective_user
         await context.bot.send_message(chat_id=ADMIN_USERNAME, text=f"📩 پیام پشتیبانی از: {user.first_name} (@{user.username or 'بدون آیدی'})\n\n{update.message.text}")
-        await update.message.reply_text("✅ پیام شما دریافت شد. تیم پشتیبانی پاسخ می‌دهد.")
+        await update.message.reply_text("✅ پیام شما دریافت شد.")
         context.user_data['support_mode'] = False
     else:
         await update.message.reply_text("لطفاً از منوی /start استفاده کنید.")
@@ -140,24 +160,18 @@ async def admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if data.startswith('approve_'):
         user_id = int(data.replace('approve_', ''))
-        
-        # 👈 برداشتن اولین رمز از لیست
         if PASSWORD_POOL:
             password = PASSWORD_POOL.pop(0)
         else:
-            await query.edit_message_caption(caption="❌ لیست رمزها تموم شده! لطفاً رمز جدید به لیست اضافه کنید.")
+            await query.edit_message_caption(caption="❌ لیست رمزها تموم شده!")
             return
         
-        # 👈 ارسال لینک + رمز به کاربر
         await context.bot.send_message(
             chat_id=user_id,
-            text=f"✅ پرداخت تایید شد!\n\n"
-                 f"🔑 **رمز شما:** `{password}`\n\n"
-                 f"🔗 **لینک صفحه:**\n{HTML_PAGE_URL}\n\n"
-                 f"⚠️ روی لینک کلیک کنید و رمز بالا را وارد نمایید.",
+            text=f"✅ پرداخت تایید شد!\n\n🔑 **رمز شما:** `{password}`\n\n🔗 **لینک:**\n{HTML_PAGE_URL}",
             parse_mode='Markdown'
         )
-        await query.edit_message_caption(caption=f"✅ تایید شد. رمز ارسال شده: {password}")
+        await query.edit_message_caption(caption=f"✅ تایید شد. رمز: {password}")
         
     elif data.startswith('reject_'):
         user_id = int(data.replace('reject_', ''))
@@ -167,20 +181,14 @@ async def admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def back_to_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    keyboard = [
-        [InlineKeyboardButton("🇮🇷 پک ایرانیزه", callback_data='buy_pack_irani')],
-        [InlineKeyboardButton("🏎️ سوپر پک", callback_data='buy_pack_super')],
-        [InlineKeyboardButton("📥 دانلود بیس بازی (الزامی)", callback_data='base_game')],
-        [InlineKeyboardButton("📞 پشتیبانی", callback_data='support')]
-    ]
-    await query.edit_message_text("لطفاً یکی از پک‌های زیر را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(keyboard))
+    await query.edit_message_text("لطفاً یکی از گزینه‌های زیر را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(main_menu_keyboard()))
 
 def main():
     threading.Thread(target=run_flask, daemon=True).start()
     application = Application.builder().token(TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(button_handler, pattern='^buy_|^support|^base_game'))
+    application.add_handler(CallbackQueryHandler(button_handler, pattern='^check_join|^buy_|^support|^base_game'))
     application.add_handler(CallbackQueryHandler(pay_handler, pattern='^pay_'))
     application.add_handler(CallbackQueryHandler(admin_action, pattern='^approve_|^reject_'))
     application.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_to_menu'))
