@@ -8,7 +8,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Mess
 
 # --- تنظیمات ---
 TOKEN = "8789507883:AAH1O5TTOoBI46e77lj958dwU8BR1vC8hN4"
-ADMIN_USERNAME = "8854352160"    # 👈 آیدی عددی ادمین
+ADMIN_USERNAME = "1808953401"    # 👈 آیدی عددی ادمین
 CARD_NUMBER = "6219861804455185"
 CARD_HOLDER = "علیرضا عباس پور"
 BASE_GAME_LINK = "https://dl2.megadl.click/PS4-Hacked/GTAV/CUSA00419/BASE/"
