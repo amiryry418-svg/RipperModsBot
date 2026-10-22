@@ -29,9 +29,12 @@ PRODUCTS = {
     "pack_super": {"name": "سوپر پک", "price": 799000, "photo": "https://s50.uupload.ir/files/rippermodsgtavv100/Amir/IMG_20261021_205811_651.jpg"}
 }
 
+# 👈 لیست خریداران تایید شده
+VERIFIED_BUYERS = set()
+
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-# --- وب‌سرور (برای زنده موندن در Render) ---
+# --- وب‌سرور ---
 app = Flask(__name__)
 @app.route('/')
 def health_check(): return "Bot is running!", 200
@@ -40,12 +43,11 @@ def run_flask():
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
 
-# --- توابع کمکی برای ساخت دکمه‌ها ---
+# --- منوها ---
 def main_menu_keyboard():
     return [
         [InlineKeyboardButton("🛒 ورود به فروشگاه", callback_data='shop_menu')],
-        [InlineKeyboardButton("📥 دریافت مجدد لینک دانلود", callback_data='request_relink')],
-        [InlineKeyboardButton("📞 پشتیبانی", callback_data='support')]
+        [InlineKeyboardButton("📞 پشتیبانی", callback_data='support')] # دکمه دریافت لینک از اینجا حذف شد
     ]
 
 def shop_menu_keyboard():
@@ -63,7 +65,7 @@ def products_keyboard():
         [InlineKeyboardButton("🔙 بازگشت به فروشگاه", callback_data='shop_menu')]
     ]
 
-# --- استارت ---
+# 👈 استارت
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear() 
     welcome_text = (
@@ -82,18 +84,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     user = query.from_user
     
-    # 👈 دکمه‌های زیر عکس استارت (پیام جدید می‌فرستن)
     if query.data == 'shop_menu':
         await query.message.reply_text("🛒 **به فروشگاه خوش آمدید!**\n\nچه کاری می‌خواهید انجام دهید؟", parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(shop_menu_keyboard()))
-    elif query.data == 'request_relink':
-        keyboard = [[InlineKeyboardButton("✅ ارسال لینک", callback_data=f'sendlink_{user.id}')]]
-        await context.bot.send_message(chat_id=ADMIN_MAIN_ID, text=f"🔄 **درخواست لینک مجدد**\nاز: {user.first_name}", reply_markup=InlineKeyboardMarkup(keyboard))
-        await query.message.reply_text("✅ درخواست شما به ادمین ارسال شد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data='back_to_main')]]))
+    
     elif query.data == 'support':
         context.user_data['support_mode'] = True
         await query.message.reply_text("📞 **پشتیبانی**\n\nلطفاً مشکل خود را بنویسید:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data='back_to_main')]]))
 
-    # 👈 از اینجا به بعد پیام‌ها متنی هستن و با edit کار می‌کنن
     elif query.data == 'back_to_main':
         await query.edit_message_text("لطفاً از منوی اصلی انتخاب کنید:", reply_markup=InlineKeyboardMarkup(main_menu_keyboard()))
     elif query.data == 'menu_products':
@@ -119,10 +116,11 @@ async def send_product_info(query, context, product_key):
     price_text = f"{product['price']:,} تومان"
     caption = f"🎮 {product['name']} GTA V\n\n💰 قیمت: {price_text}"
     
+    # 👈 دکمه "دریافت مجدد لینک" به این صفحه اضافه شد
     keyboard = [
         [InlineKeyboardButton("🎟 وارد کردن کد تخفیف", callback_data='enter_discount')],
         [InlineKeyboardButton("💳 خرید و پرداخت", callback_data=f'pay_{product_key}')],
-        [InlineKeyboardButton("🔙 بازگشت", callback_data='menu_products')]
+        [InlineKeyboardButton("📥 دریافت مجدد لینک", callback_data='request_relink'), InlineKeyboardButton("🔙 بازگشت", callback_data='menu_products')]
     ]
     await query.message.reply_photo(photo=product['photo'], caption=caption, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
@@ -130,8 +128,6 @@ async def enter_discount_handler(update: Update, context: ContextTypes.DEFAULT_T
     query = update.callback_query
     await query.answer()
     context.user_data['awaiting_discount'] = True
-    
-    # 👈 اینجا هم پیام جدید می‌فرستیم تا باگ عکس حل بشه
     await query.message.reply_text("🎟 **لطفاً کد تخفیف خود را ارسال کنید:**", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 لغو", callback_data='back_to_product')]]))
 
 async def process_discount_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -152,7 +148,7 @@ async def process_discount_code(update: Update, context: ContextTypes.DEFAULT_TY
     keyboard = [
         [InlineKeyboardButton("🎟 وارد کردن کد تخفیف", callback_data='enter_discount')],
         [InlineKeyboardButton("💳 خرید و پرداخت", callback_data=f'pay_{product_key}')],
-        [InlineKeyboardButton("🔙 بازگشت", callback_data='menu_products')]
+        [InlineKeyboardButton("📥 دریافت مجدد لینک", callback_data='request_relink'), InlineKeyboardButton("🔙 بازگشت", callback_data='menu_products')]
     ]
     await update.message.reply_photo(photo=product['photo'], caption=caption, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
@@ -166,7 +162,7 @@ async def back_to_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("🎟 وارد کردن کد تخفیف", callback_data='enter_discount')],
         [InlineKeyboardButton("💳 خرید و پرداخت", callback_data=f'pay_{product_key}')],
-        [InlineKeyboardButton("🔙 بازگشت", callback_data='menu_products')]
+        [InlineKeyboardButton("📥 دریافت مجدد لینک", callback_data='request_relink'), InlineKeyboardButton("🔙 بازگشت", callback_data='menu_products')]
     ]
     await query.message.reply_photo(photo=product['photo'], caption=caption, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
@@ -178,25 +174,46 @@ async def pay_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     price_text = f"~~{product['price']:,} تومان~~ **{product['price'] - DISCOUNT_AMOUNT:,} تومان**" if context.user_data.get('discount_applied') else f"{product['price']:,} تومان"
     text = f"شما {product['name']} را انتخاب کردید.\n\n💰 مبلغ: {price_text}\n💳 کارت:\n`{CARD_NUMBER}`\n👤 نام: {CARD_HOLDER}\n\n📸 **عکس رسید** را ارسال کنید."
     keyboard = [[InlineKeyboardButton("🔙 بازگشت به محصول", callback_data='back_to_product')]]
-    
-    # 👈 اینجا هم پیام جدید می‌فرستیم
     await query.message.reply_text(text=text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+
+# 👈 هندلر دریافت لینک مجدد (حالا از داخل صفحه محصول صدا زده میشه)
+async def request_relink_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user = query.from_user
+    
+    if user.id in VERIFIED_BUYERS:
+        keyboard = [[InlineKeyboardButton("✅ ارسال لینک", callback_data=f'sendlink_{user.id}')]]
+        await context.bot.send_message(
+            chat_id=ADMIN_MAIN_ID, 
+            text=f"📥 **درخواست دریافت مجدد لینک**\nاز خریدار تایید شده: {user.first_name} (@{user.username or 'بدون آیدی'})", 
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        await query.message.reply_text("✅ درخواست شما به ادمین ارسال شد. منتظر تایید باشید.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data='back_to_product')]]))
+    else:
+        await query.message.reply_text(
+            "❌ **شما مجاز به دریافت لینک نیستید.**\n\n"
+            "فقط افرادی که قبلاً پک را خریداری کرده و پرداختشان توسط ادمین تایید شده است، می‌توانند از این بخش استفاده کنند.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data='back_to_product')]])
+        )
 
 # --- هندلرهای دریافتی ---
 async def handle_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.photo: return
     user = update.effective_user
     keyboard = [[InlineKeyboardButton("✅ تایید", callback_data=f'approve_{user.id}')], [InlineKeyboardButton("❌ رد", callback_data=f'reject_{user.id}')]]
-    await context.bot.send_photo(chat_id=ADMIN_MAIN_ID, photo=update.message.photo[-1].file_id, caption=f"رسید جدید از: {user.first_name}", reply_markup=InlineKeyboardMarkup(keyboard))
+    await context.bot.send_photo(chat_id=ADMIN_MAIN_ID, photo=update.message.photo[-1].file_id, caption=f"رسید جدید از: {user.first_name} (@{user.username or 'بدون آیدی'})\n\nUser ID: {user.id}", reply_markup=InlineKeyboardMarkup(keyboard))
     await update.message.reply_text("✅ رسید دریافت شد. منتظر تایید باشید.")
 
 async def handle_text_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+    
     if context.user_data.get('support_mode'):
         keyboard = [[InlineKeyboardButton("✍️ پاسخ", callback_data=f'reply_{user.id}')]]
         await context.bot.send_message(chat_id=ADMIN_MAIN_ID, text=f"📩 پشتیبانی از {user.first_name}:\n{update.message.text}", reply_markup=InlineKeyboardMarkup(keyboard))
         await update.message.reply_text("✅ پیام دریافت شد.")
         context.user_data['support_mode'] = False
+        
     elif context.user_data.get('awaiting_service'):
         service = context.user_data.get('awaiting_service')
         context.user_data['awaiting_service'] = False
@@ -230,13 +247,19 @@ async def admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
+    
     if data.startswith('approve_') or data.startswith('sendlink_'):
         user_id = int(data.split('_')[1])
+        
+        # 👈 اضافه کردن کاربر به لیست خریداران تایید شده
+        VERIFIED_BUYERS.add(user_id)
+        
         sent_msg = await context.bot.send_message(chat_id=user_id, text=f"✅ **لینک:** {DIRECT_DOWNLOAD_LINK}\n🔑 **رمز:** `{UPLOAD_PASSWORD}`\n\n⚠️ ۳۰ ثانیه فرصت دارید.", parse_mode='Markdown')
         await asyncio.sleep(30)
         try: await context.bot.delete_message(chat_id=user_id, message_id=sent_msg.message_id)
         except: pass
         await query.edit_message_text("✅ لینک ارسال شد.")
+        
     elif data.startswith('reject_'):
         user_id = int(data.replace('reject_', ''))
         await context.bot.send_message(chat_id=user_id, text="❌ رد شد.")
@@ -252,6 +275,10 @@ def main():
     application.add_handler(CallbackQueryHandler(enter_discount_handler, pattern='^enter_discount$'))
     application.add_handler(CallbackQueryHandler(back_to_product, pattern='^back_to_product$'))
     application.add_handler(CallbackQueryHandler(pay_handler, pattern='^pay_'))
+    
+    # 👈 هندلر جدید برای دریافت لینک مجدد
+    application.add_handler(CallbackQueryHandler(request_relink_handler, pattern='^request_relink$'))
+    
     application.add_handler(CallbackQueryHandler(admin_action, pattern='^approve_|^reject_|^sendlink_'))
     application.add_handler(CallbackQueryHandler(admin_reply_button, pattern='^reply_|^cancel_reply'))
     application.add_handler(MessageHandler(filters.PHOTO, handle_receipt))
