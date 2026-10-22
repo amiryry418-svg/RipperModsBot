@@ -3,6 +3,7 @@ import threading
 import os
 import random
 from flask import Flask, request, jsonify
+from flask_cors import CORS  # 👈 اضافه شد
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
@@ -30,6 +31,9 @@ PASSWORD_POOL = [
 
 USED_PASSWORDS = []
 
+# 👈 لیست جدید برای نگهداری سفارش‌های فروخته شده (کد سفارش : رمز اتصال)
+SOLD_ORDERS = {} 
+
 PRODUCTS = {
     "pack_irani": {"name": "پک ایرانیزه", "price": "398,000 تومان", "photo": "https://s31.uupload.ir/files/rippermodsgtavv100/Amir/4/IMG_20261021_205807_285.jpg", "caption": "🎮 پک ایرانیزه GTA V\n\n💰 قیمت: 398,000 تومان", "is_active": False},
     "pack_super": {"name": "سوپر پک", "price": "799,000 تومان", "photo": "https://s50.uupload.ir/files/rippermodsgtavv100/Amir/IMG_20261021_205811_651.jpg", "caption": "🎮 سوپر پک GTA V\n\n💰 قیمت: 799,000 تومان", "is_active": True}
@@ -39,6 +43,8 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 
 # --- وب‌سرور (API) ---
 app = Flask(__name__)
+# 👈 فعال‌سازی CORS تا صفحه گیت‌هاب بتونه به سرور Render وصل بشه
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 @app.route('/')
 def health_check(): return "Bot is running!", 200
@@ -52,6 +58,36 @@ def verify_password():
         return jsonify({"success": True}), 200
     else:
         return jsonify({"success": False, "message": "رمز نامعتبر یا قبلاً استفاده شده"}), 400
+
+# 👈 مسیر جدید برای بررسی کدهای صفحه HTML
+@app.route('/verify_portal', methods=['POST', 'OPTIONS'])
+def verify_portal():
+    if request.method == 'OPTIONS':
+        return '', 200
+        
+    data = request.json
+    if not data:
+        return jsonify({"success": False, "message": "داده‌ای ارسال نشده"}), 400
+        
+    order_code = data.get('order_code')
+    connect_code = data.get('connect_code')
+    
+    # بررسی اینکه آیا این کد سفارش و کد اتصال با هم مطابقت دارن یا نه
+    if order_code in SOLD_ORDERS and SOLD_ORDERS[order_code] == connect_code:
+        
+        # لینک مقصد (لینک uupload)
+        redirect_url = "https://my.uupload.ir/d/D9axZ"
+        
+        # کدهای استفاده شده رو پاک کن تا یکبارمصرف باشن
+        del SOLD_ORDERS[order_code] 
+        
+        return jsonify({
+            "success": True, 
+            "redirect_url": redirect_url
+        }), 200
+    else:
+        return jsonify({"success": False, "message": "کد سفارش یا کد اتصال اشتباه است یا قبلا استفاده شده"}), 400
+
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
@@ -188,12 +224,23 @@ async def admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if PASSWORD_POOL:
             password = random.choice(PASSWORD_POOL)
             PASSWORD_POOL.remove(password)
+            
+            # 👈 اینجا رمز تولید شده رو در لیست سفارش‌های فروخته شده قرار میدیم
+            order_code = f"ORDER{random.randint(1000, 9999)}" 
+            SOLD_ORDERS[order_code] = password
+            
         else:
             await query.edit_message_caption(caption="❌ لیست رمزها تموم شده!")
             return
+            
         keyboard = [[InlineKeyboardButton("🌐 ورود به صفحه دانلود", url=HTML_PAGE_URL)]]
-        await context.bot.send_message(chat_id=user_id, text=f"✅ پرداخت تایید شد!\n\n🔑 **رمز شما:** `{password}`\n\n⚠️ روی دکمه زیر کلیک کنید و رمز بالا را وارد نمایید.", parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
-        await query.edit_message_caption(caption=f"✅ تایید شد. رمز: {password}")
+        await context.bot.send_message(
+            chat_id=user_id, 
+            text=f"✅ پرداخت تایید شد!\n\n🔑 **کد سفارش شما:** `{order_code}`\n🔑 **کد اتصال شما:** `{password}`\n\n⚠️ روی دکمه زیر کلیک کنید و این دو کد را در صفحه وارد نمایید.", 
+            parse_mode='Markdown', 
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        await query.edit_message_caption(caption=f"✅ تایید شد. کد سفارش: {order_code} | رمز: {password}")
     elif data.startswith('reject_'):
         user_id = int(data.replace('reject_', ''))
         await context.bot.send_message(chat_id=user_id, text="❌ رسید شما رد شد.")
