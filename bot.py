@@ -29,7 +29,6 @@ PRODUCTS = {
     "pack_super": {"name": "سوپر پک", "price": 799000, "photo": "https://s50.uupload.ir/files/rippermodsgtavv100/Amir/IMG_20261021_205811_651.jpg"}
 }
 
-# 👈 لیست خریداران تایید شده
 VERIFIED_BUYERS = set()
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -47,7 +46,7 @@ def run_flask():
 def main_menu_keyboard():
     return [
         [InlineKeyboardButton("🛒 ورود به فروشگاه", callback_data='shop_menu')],
-        [InlineKeyboardButton("📞 پشتیبانی", callback_data='support')] # دکمه دریافت لینک از اینجا حذف شد
+        [InlineKeyboardButton("📞 پشتیبانی", callback_data='support')]
     ]
 
 def shop_menu_keyboard():
@@ -65,7 +64,7 @@ def products_keyboard():
         [InlineKeyboardButton("🔙 بازگشت به فروشگاه", callback_data='shop_menu')]
     ]
 
-# 👈 استارت
+# --- استارت ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear() 
     welcome_text = (
@@ -109,14 +108,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['awaiting_service'] = "پورت بازی‌های نوستالژی"
         await query.edit_message_text("🕹 **سفارش پورت نوستالژی**\n\nلطفاً نام بازی و کنسول مقصد را ارسال کنید.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 لغو", callback_data='shop_menu')]]))
 
-# --- توابع محصولات و تخفیف ---
+# --- توابع محصولات ---
 async def send_product_info(query, context, product_key):
     product = PRODUCTS[product_key]
     context.user_data['current_product'] = product_key
     price_text = f"{product['price']:,} تومان"
     caption = f"🎮 {product['name']} GTA V\n\n💰 قیمت: {price_text}"
     
-    # 👈 دکمه "دریافت مجدد لینک" به این صفحه اضافه شد
     keyboard = [
         [InlineKeyboardButton("🎟 وارد کردن کد تخفیف", callback_data='enter_discount')],
         [InlineKeyboardButton("💳 خرید و پرداخت", callback_data=f'pay_{product_key}')],
@@ -124,6 +122,7 @@ async def send_product_info(query, context, product_key):
     ]
     await query.message.reply_photo(photo=product['photo'], caption=caption, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
+# 👈 برای همه دکمه‌های داخل صفحه محصول از reply_text استفاده کردیم
 async def enter_discount_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -164,7 +163,7 @@ async def back_to_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("💳 خرید و پرداخت", callback_data=f'pay_{product_key}')],
         [InlineKeyboardButton("📥 دریافت مجدد لینک", callback_data='request_relink'), InlineKeyboardButton("🔙 بازگشت", callback_data='menu_products')]
     ]
-    await query.message.reply_photo(photo=product['photo'], caption=caption, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+    await query.message.reply_text("لطفاً محصول را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def pay_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -176,7 +175,6 @@ async def pay_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton("🔙 بازگشت به محصول", callback_data='back_to_product')]]
     await query.message.reply_text(text=text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
-# 👈 هندلر دریافت لینک مجدد (حالا از داخل صفحه محصول صدا زده میشه)
 async def request_relink_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -251,7 +249,6 @@ async def admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith('approve_') or data.startswith('sendlink_'):
         user_id = int(data.split('_')[1])
         
-        # 👈 اضافه کردن کاربر به لیست خریداران تایید شده
         VERIFIED_BUYERS.add(user_id)
         
         sent_msg = await context.bot.send_message(chat_id=user_id, text=f"✅ **لینک:** {DIRECT_DOWNLOAD_LINK}\n🔑 **رمز:** `{UPLOAD_PASSWORD}`\n\n⚠️ ۳۰ ثانیه فرصت دارید.", parse_mode='Markdown')
@@ -275,10 +272,7 @@ def main():
     application.add_handler(CallbackQueryHandler(enter_discount_handler, pattern='^enter_discount$'))
     application.add_handler(CallbackQueryHandler(back_to_product, pattern='^back_to_product$'))
     application.add_handler(CallbackQueryHandler(pay_handler, pattern='^pay_'))
-    
-    # 👈 هندلر جدید برای دریافت لینک مجدد
     application.add_handler(CallbackQueryHandler(request_relink_handler, pattern='^request_relink$'))
-    
     application.add_handler(CallbackQueryHandler(admin_action, pattern='^approve_|^reject_|^sendlink_'))
     application.add_handler(CallbackQueryHandler(admin_reply_button, pattern='^reply_|^cancel_reply'))
     application.add_handler(MessageHandler(filters.PHOTO, handle_receipt))
