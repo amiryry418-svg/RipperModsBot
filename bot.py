@@ -82,7 +82,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     user = query.from_user
     
-    # 👈 اینجا باگ عکس حل شده. برای دکمه‌های زیر عکس، پیام جدید میفرستیم.
+    # 👈 دکمه‌های زیر عکس استارت (پیام جدید می‌فرستن)
     if query.data == 'shop_menu':
         await query.message.reply_text("🛒 **به فروشگاه خوش آمدید!**\n\nچه کاری می‌خواهید انجام دهید؟", parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(shop_menu_keyboard()))
     elif query.data == 'request_relink':
@@ -130,7 +130,9 @@ async def enter_discount_handler(update: Update, context: ContextTypes.DEFAULT_T
     query = update.callback_query
     await query.answer()
     context.user_data['awaiting_discount'] = True
-    await query.edit_message_text("🎟 **لطفاً کد تخفیف خود را ارسال کنید:**", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 لغو", callback_data='back_to_product')]]))
+    
+    # 👈 اینجا هم پیام جدید می‌فرستیم تا باگ عکس حل بشه
+    await query.message.reply_text("🎟 **لطفاً کد تخفیف خود را ارسال کنید:**", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 لغو", callback_data='back_to_product')]]))
 
 async def process_discount_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['awaiting_discount'] = False
@@ -176,7 +178,9 @@ async def pay_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     price_text = f"~~{product['price']:,} تومان~~ **{product['price'] - DISCOUNT_AMOUNT:,} تومان**" if context.user_data.get('discount_applied') else f"{product['price']:,} تومان"
     text = f"شما {product['name']} را انتخاب کردید.\n\n💰 مبلغ: {price_text}\n💳 کارت:\n`{CARD_NUMBER}`\n👤 نام: {CARD_HOLDER}\n\n📸 **عکس رسید** را ارسال کنید."
     keyboard = [[InlineKeyboardButton("🔙 بازگشت به محصول", callback_data='back_to_product')]]
-    await query.edit_message_text(text=text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+    
+    # 👈 اینجا هم پیام جدید می‌فرستیم
+    await query.message.reply_text(text=text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
 # --- هندلرهای دریافتی ---
 async def handle_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
