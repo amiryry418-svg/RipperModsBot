@@ -12,7 +12,7 @@ ADMIN_USERNAME = "1808953401"
 CARD_NUMBER = "6219861804455185"
 CARD_HOLDER = "علیرضا عباس پور"
 BASE_GAME_LINK = "https://dl2.megadl.click/PS4-Hacked/GTAV/CUSA00419/BASE/"
-HTML_PAGE_URL = "https://rippermods-shop.freepage.cc/index.html"
+HTML_PAGE_URL = https://magical-melba-f9c075.netlify.app
 
 # 👈 لیست رمزها (باید دقیقاً با لیست داخل HTML یکی باشه)
 PASSWORD_POOL = [
