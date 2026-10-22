@@ -1,13 +1,14 @@
 import logging
 import threading
 import os
-from flask import Flask
+import random
+from flask import Flask, request, jsonify
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
 # --- تنظیمات ---
-TOKEN = "8789507883:AAH1O5TTOoBI46e77lj958dwU8BR1vC8hN4"
-ADMIN_USERNAME = "1808953401"    # 👈 آیدی عددی جدید ادمین
+TOKEN = "توکن_فعلی_رو_اینجا_بذار" # 👈 توکن فعلی ربات
+ADMIN_USERNAME = "1808953401"    # 👈 آیدی عددی ادمین
 CARD_NUMBER = "6219861804455185"
 CARD_HOLDER = "علیرضا عباس پور"
 BASE_GAME_LINK = "https://dl2.megadl.click/PS4-Hacked/GTAV/CUSA00419/BASE/"
@@ -26,6 +27,8 @@ PASSWORD_POOL = [
     "GoldA1b2", "GoldC3d4", "GoldE5f6", "GoldG7h8", "GoldI9j0"
 ]
 
+USED_PASSWORDS = []
+
 PRODUCTS = {
     "pack_irani": {"name": "پک ایرانیزه", "price": "398,000 تومان", "photo": "https://s31.uupload.ir/files/rippermodsgtavv100/Amir/4/IMG_20261021_205807_285.jpg", "caption": "🎮 پک ایرانیزه GTA V\n\n💰 قیمت: 398,000 تومان", "is_active": False},
     "pack_super": {"name": "سوپر پک", "price": "799,000 تومان", "photo": "https://s50.uupload.ir/files/rippermodsgtavv100/Amir/IMG_20261021_205811_651.jpg", "caption": "🎮 سوپر پک GTA V\n\n💰 قیمت: 799,000 تومان", "is_active": True}
@@ -37,6 +40,17 @@ app = Flask(__name__)
 
 @app.route('/')
 def health_check(): return "Bot is running!", 200
+
+@app.route('/verify', methods=['POST'])
+def verify_password():
+    data = request.json
+    password = data.get('password')
+    
+    if password in PASSWORD_POOL and password not in USED_PASSWORDS:
+        USED_PASSWORDS.append(password)
+        return jsonify({"success": True}), 200
+    else:
+        return jsonify({"success": False, "message": "رمز نامعتبر یا قبلاً استفاده شده"}), 400
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
@@ -54,7 +68,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    
     if query.data == 'buy_pack_irani': await query.answer("🚧 در حال آپدیت.", show_alert=True)
     elif query.data == 'buy_pack_super': await send_product_info(query, 'pack_super')
     elif query.data == 'base_game': await query.edit_message_text(text=f"📥 **دانلود بیس بازی:**\n\n`{BASE_GAME_LINK}`", parse_mode='Markdown', reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data='back_to_menu')]]))
@@ -91,11 +104,7 @@ async def handle_support_message(update: Update, context: ContextTypes.DEFAULT_T
     if context.user_data.get('support_mode'):
         user = update.effective_user
         keyboard = [[InlineKeyboardButton("✍️ پاسخ به کاربر", callback_data=f'reply_{user.id}')]]
-        await context.bot.send_message(
-            chat_id=ADMIN_USERNAME, 
-            text=f"📩 پیام پشتیبانی از: {user.first_name} (@{user.username or 'بدون آیدی'})\n\n{update.message.text}", 
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        await context.bot.send_message(chat_id=ADMIN_USERNAME, text=f"📩 پیام پشتیبانی از: {user.first_name} (@{user.username or 'بدون آیدی'})\n\n{update.message.text}", reply_markup=InlineKeyboardMarkup(keyboard))
         await update.message.reply_text("✅ پیام شما دریافت شد. تیم پشتیبانی پاسخ می‌دهد.")
         context.user_data['support_mode'] = False
     else:
@@ -105,7 +114,6 @@ async def admin_reply_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
     query = update.callback_query
     await query.answer()
     data = query.data
-    
     if data.startswith('reply_'):
         user_id = int(data.replace('reply_', ''))
         context.user_data['reply_to'] = user_id
@@ -132,7 +140,8 @@ async def admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith('approve_'):
         user_id = int(data.replace('approve_', ''))
         if PASSWORD_POOL:
-            password = PASSWORD_POOL.pop(0)
+            password = random.choice(PASSWORD_POOL)
+            PASSWORD_POOL.remove(password)
         else:
             await query.edit_message_caption(caption="❌ لیست رمزها تموم شده!")
             return
