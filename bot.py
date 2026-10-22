@@ -11,7 +11,7 @@ ADMIN_USERNAME = "8854352160"    # 👈 آیدی عددی ادمین
 CARD_NUMBER = "6219861804455185"
 CARD_HOLDER = "علیرضا عباس پور"
 BASE_GAME_LINK = "https://dl2.megadl.click/PS4-Hacked/GTAV/CUSA00419/BASE/"
-HTML_PAGE_URL = "https://magical-melba-f9c075.netlify.app" 
+HTML_PAGE_URL = "https://amiryry418-svg.github.io/RipperModsBot/"
 
 PASSWORD_POOL = [
     "RipA1b2", "RipC3d4", "RipE5f6", "RipG7h8", "RipI9j0",
