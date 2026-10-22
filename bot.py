@@ -19,7 +19,8 @@ BASE_GAME_LINK = "https://dl2.megadl.click/PS4-Hacked/GTAV/CUSA00419/BASE/"
 DIRECT_DOWNLOAD_LINK = "https://my.uupload.ir/d/D9axZ" 
 UPLOAD_PASSWORD = "mwrippersfinest" 
 
-# 👈 کد تخفیف فقط برای سیستم چک میشه، به کاربر نشون داده نمیشه
+WELCOME_PHOTO = "https://s50.uupload.ir/files/rippermodsgtavv100/Amir/IMG_20261021_205811_651.jpg"
+
 DISCOUNT_CODE = "Ripper_mods new bot"
 DISCOUNT_AMOUNT = 99000 
 DISCOUNT_EXPIRY = datetime.datetime.now() + datetime.timedelta(days=3)
@@ -72,9 +73,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🔹 **خرید پک‌های حرفه‌ای GTA V**\n"
         "🔹 **ساخت پک اختصاصی (دلخواه)**\n"
         "🔹 **پورت بازی‌های نوستالژی**\n\n"
-        "👇 برای شروع، روی دکمه زیر کلیک کنید:"
+        "👇 برای شروع، روی دکمه‌های زیر کلیک کنید:"
     )
-    await update.message.reply_text(text=welcome_text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(main_menu_keyboard()))
+    await update.message.reply_photo(photo=WELCOME_PHOTO, caption=welcome_text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(main_menu_keyboard()))
 
 # --- هندلر اصلی دکمه‌ها ---
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -101,9 +102,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=ADMIN_MAIN_ID, text=f"🔄 **درخواست لینک مجدد**\nاز: {user.first_name}", reply_markup=InlineKeyboardMarkup(keyboard))
         await query.edit_message_text("✅ درخواست شما به ادمین ارسال شد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data='back_to_main')]]))
     
+    # 👈 استیت ساخت پک
     elif query.data == 'req_build_pack':
         context.user_data['awaiting_service'] = "ساخت پک اختصاصی GTA V"
         await query.edit_message_text("🏗 **سفارش ساخت پک**\n\nلطفاً جزئیات درخواست خود را ارسال کنید.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 لغو", callback_data='shop_menu')]]))
+    # 👈 استیت پورت نوستالژی
     elif query.data == 'req_port_nostalgia':
         context.user_data['awaiting_service'] = "پورت بازی‌های نوستالژی"
         await query.edit_message_text("🕹 **سفارش پورت نوستالژی**\n\nلطفاً نام بازی و کنسول مقصد را ارسال کنید.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 لغو", callback_data='shop_menu')]]))
@@ -125,11 +128,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def send_product_info(query, context, product_key):
     product = PRODUCTS[product_key]
     context.user_data['current_product'] = product_key
-    
-    # 👈 کد تخفیف اینجا نمایش داده نمیشه. فقط قیمت اصلی هست.
     price_text = f"{product['price']:,} تومان"
     caption = f"🎮 {product['name']} GTA V\n\n💰 قیمت: {price_text}"
     
+    # 👈 دکمه‌های این بخش حالا دقیقاً به توابع مربوطه وصل شدن
     keyboard = [
         [InlineKeyboardButton("🎟 وارد کردن کد تخفیف", callback_data='enter_discount')],
         [InlineKeyboardButton("💳 خرید و پرداخت", callback_data=f'pay_{product_key}'), InlineKeyboardButton("🔙 بازگشت", callback_data='menu_products')]
@@ -148,17 +150,14 @@ async def enter_discount_handler(update: Update, context: ContextTypes.DEFAULT_T
 
 async def process_discount_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['awaiting_discount'] = False
-    
-    # 👈 چک کردن اعتبار کد تخفیف
     if update.message.text.strip() == DISCOUNT_CODE:
         if datetime.datetime.now() <= DISCOUNT_EXPIRY:
             context.user_data['discount_applied'] = True
-            await update.message.reply_text(f"✅ کد تخفیف اعمال شد! {DISCOUNT_AMOUNT:,} تومان از قیمت کسر شد.")
+            await update.message.reply_text(f"✅ کد تخفیف اعمال شد! {DISCOUNT_AMOUNT:,} تومان کسر شد.")
         else:
-            await update.message.reply_text("❌ مهلت استفاده از کد تخفیف به پایان رسیده.")
+            await update.message.reply_text("❌ مهلت کد تخفیف تمام شده.")
     else:
         await update.message.reply_text("❌ کد تخفیف نامعتبر است.")
-        
     await back_to_product_msg(update, context)
 
 async def back_to_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -171,9 +170,8 @@ async def back_to_product_msg(update: Update, context: ContextTypes.DEFAULT_TYPE
     product_key = context.user_data.get('current_product', 'pack_super')
     product = PRODUCTS[product_key]
     
-    # 👈 اگر کد اعمال شده بود، قیمت جدید نشون داده میشه، وگرنه قیمت اصلی
     if context.user_data.get('discount_applied'):
-        price_text = f"~~{product['price']:,} تومان~~ **{product['price'] - DISCOUNT_AMOUNT:,} تومان** (تخفیف اعمال شد)"
+        price_text = f"~~{product['price']:,} تومان~~ **{product['price'] - DISCOUNT_AMOUNT:,} تومان**"
     else:
         price_text = f"{product['price']:,} تومان"
 
@@ -182,6 +180,8 @@ async def back_to_product_msg(update: Update, context: ContextTypes.DEFAULT_TYPE
         [InlineKeyboardButton("🎟 وارد کردن کد تخفیف", callback_data='enter_discount')],
         [InlineKeyboardButton("💳 خرید و پرداخت", callback_data=f'pay_{product_key}'), InlineKeyboardButton("🔙 بازگشت", callback_data='menu_products')]
     ]
+    
+    # اگر پیام از کال بک اومده بود یا از متن
     chat_id = update.callback_query.message.chat_id if update.callback_query else update.message.chat_id
     await context.bot.send_photo(chat_id=chat_id, photo=product['photo'], caption=caption, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
@@ -266,7 +266,9 @@ def main():
     application = Application.builder().token(TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(button_handler))
+    
+    # 👈 هندلرهای دکمه‌ها دقیقاً به الگوهای خودشون وصل شدن
+    application.add_handler(CallbackQueryHandler(button_handler, pattern='^shop_menu|^menu_products|^buy_pack_super|^buy_pack_irani|^base_game|^request_relink|^req_build_pack|^req_port_nostalgia|^support|^guide_menu|^guide_ps4|^guide_ps5|^back_to_main'))
     application.add_handler(CallbackQueryHandler(enter_discount_handler, pattern='^enter_discount$'))
     application.add_handler(CallbackQueryHandler(back_to_product, pattern='^back_to_product$'))
     application.add_handler(CallbackQueryHandler(pay_handler, pattern='^pay_'))
