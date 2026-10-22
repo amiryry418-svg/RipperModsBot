@@ -7,13 +7,14 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
 # --- تنظیمات ---
-TOKEN = "8789507883:AAH1O5TTOoBI46e77lj958dwU8BR1vC8hN4"
+TOKEN = "8789507883 = "AAH1O5TTOoBI46e77lj958dwU8BR1vC8hN4"
 ADMIN_USERNAME = "1808953401"    # 👈 آیدی عددی ادمین
 CARD_NUMBER = "6219861804455185"
 CARD_HOLDER = "علیرضا عباس پور"
 BASE_GAME_LINK = "https://dl2.megadl.click/PS4-Hacked/GTAV/CUSA00419/BASE/"
 HTML_PAGE_URL = "https://amiryry418-svg.github.io/RipperModsBot/" 
 
+# 👈 لیست رمزها
 PASSWORD_POOL = [
     "RipA1b2", "RipC3d4", "RipE5f6", "RipG7h8", "RipI9j0",
     "ModA1b2", "ModC3d4", "ModE5f6", "ModG7h8", "ModI9j0",
@@ -36,6 +37,7 @@ PRODUCTS = {
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
+# --- وب‌سرور (API) ---
 app = Flask(__name__)
 
 @app.route('/')
@@ -45,7 +47,6 @@ def health_check(): return "Bot is running!", 200
 def verify_password():
     data = request.json
     password = data.get('password')
-    
     if password in PASSWORD_POOL and password not in USED_PASSWORDS:
         USED_PASSWORDS.append(password)
         return jsonify({"success": True}), 200
@@ -56,10 +57,12 @@ def run_flask():
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
 
+# --- توابع ربات ---
 def main_menu_keyboard():
     return [
         [InlineKeyboardButton("🎮 سوپر پک", callback_data='buy_pack_super'), InlineKeyboardButton("🇮🇷 پک ایرانیزه", callback_data='buy_pack_irani')],
-        [InlineKeyboardButton("📥 دانلود بیس بازی", callback_data='base_game'), InlineKeyboardButton("📞 پشتیبانی", callback_data='support')]
+        [InlineKeyboardButton("📥 دانلود بیس بازی", callback_data='base_game'), InlineKeyboardButton("📞 پشتیبانی", callback_data='support')],
+        [InlineKeyboardButton("📖 راهنمای نصب", callback_data='guide_menu')] # 👈 دکمه جدید
     ]
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -68,12 +71,55 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    if query.data == 'buy_pack_irani': await query.answer("🚧 در حال آپدیت.", show_alert=True)
-    elif query.data == 'buy_pack_super': await send_product_info(query, 'pack_super')
-    elif query.data == 'base_game': await query.edit_message_text(text=f"📥 **دانلود بیس بازی:**\n\n`{BASE_GAME_LINK}`", parse_mode='Markdown', reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data='back_to_menu')]]))
+    
+    if query.data == 'buy_pack_irani': 
+        await query.answer("🚧 در حال آپدیت.", show_alert=True)
+    elif query.data == 'buy_pack_super': 
+        await send_product_info(query, 'pack_super')
+    elif query.data == 'base_game': 
+        await query.edit_message_text(text=f"📥 **دانلود بیس بازی:**\n\n`{BASE_GAME_LINK}`", parse_mode='Markdown', reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data='back_to_menu')]]))
     elif query.data == 'support':
         context.user_data['support_mode'] = True
         await query.edit_message_text("📞 **پشتیبانی**\n\nلطفاً مشکل خود را بنویسید:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data='back_to_menu')]]))
+    
+    # 👈 بخش راهنمای نصب
+    elif query.data == 'guide_menu':
+        keyboard = [
+            [InlineKeyboardButton("🎮 راهنمای PS4", callback_data='guide_ps4'), InlineKeyboardButton("🎮 راهنمای PS5", callback_data='guide_ps5')],
+            [InlineKeyboardButton("🔙 بازگشت", callback_data='back_to_menu')]
+        ]
+        await query.edit_message_text(
+            "📖 **راهنمای نصب**\n\nلطفاً کنسول خود را انتخاب کنید:",
+            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    elif query.data == 'guide_ps4':
+        text = (
+            "🚨 **آموزش نصب پک در PS4 (مرحله به مرحله)**\n\n"
+            "1️⃣ **اول از همه:** فایل **بیس** رو نصب کنید (فایل اصلی بازی).\n"
+            "2️⃣ **دوم (مهم):** فایل **پک** (همون فایل‌های PKG که خریداری کردید) رو نصب کنید. این همون آپدیت بازیه.\n\n"
+            "📂 **استخراج فایل‌ها:**\n"
+            "همه پارت‌های **RAR** رو دانلود کنید و توی **یک پوشه** بریزید. سپس فقط روی **پارت ۱** راست‌کلیک کنید و **Extract Here** بزنید. (نرم‌افزار خودش بقیه پارت‌ها رو پیدا می‌کنه).\n"
+            "بعد از استخراج، فایل‌های **PKG** به دست میان.\n\n"
+            "💾 **انتقال به فلش:**\n"
+            "فایل‌های **PKG** رو به فلش یا هارد اکسترنال با فرمت **exFAT** کپی کنید. (فایل‌ها رو توی پوشه نذارید، باید مستقیم توی روت فلش باشن).\n\n"
+            "⚙️ **نصب در کنسول:**\n"
+            "بعد از جیلبریک، برید به: **Settings -> Debug settings -> Game Package installer**\n"
+            "و به ترتیب: **بیس -> پک (فایل PKG)** رو نصب کنید.\n\n"
+            "⚠️ **نکته آیدی:** همه اجزا (بیس و پک) باید آیدی CUSA یکسان داشته باشن."
+        )
+        await query.edit_message_text(
+            text=text,
+            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data='guide_menu')]])
+        )
+
+    elif query.data == 'guide_ps5':
+        await query.edit_message_text(
+            "📖 **راهنمای نصب PS5**\n\nبه زودی...",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data='guide_menu')]])
+        )
 
 async def send_product_info(query, product_key):
     product = PRODUCTS[product_key]
@@ -163,7 +209,7 @@ def main():
     application = Application.builder().token(TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(button_handler, pattern='^buy_|^support|^base_game'))
+    application.add_handler(CallbackQueryHandler(button_handler, pattern='^buy_|^support|^base_game|^guide_menu|^guide_ps4|^guide_ps5'))
     application.add_handler(CallbackQueryHandler(pay_handler, pattern='^pay_'))
     application.add_handler(CallbackQueryHandler(admin_action, pattern='^approve_|^reject_'))
     application.add_handler(CallbackQueryHandler(admin_reply_button, pattern='^reply_|^cancel_reply'))
