@@ -258,7 +258,7 @@ async def handle_admin_reply_text(update: Update, context: ContextTypes.DEFAULT_
         await update.message.reply_text("✅ ارسال شد.")
         context.user_data['reply_to'] = None
 
-# 👈 تابع تایید و رد ادمین (کاملاً ایزوله و بدون دست زدن به عکس)
+# 👈 تابع تایید و رد ادمین (با تایمر ۳۰ ثانیه)
 async def admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -269,32 +269,37 @@ async def admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         VERIFIED_BUYERS.add(user_id)
         
+        # ۱. ارسال لینک و رمز به خریدار
         sent_msg = await context.bot.send_message(
             chat_id=user_id, 
-            text=f"✅ **لینک:** {DIRECT_DOWNLOAD_LINK}\n🔑 **رمز:** `{UPLOAD_PASSWORD}`\n\n⚠️ ۳۰ ثانیه فرصت دارید.", 
+            text=f"✅ **لینک:** {DIRECT_DOWNLOAD_LINK}\n🔑 **رمز:** `{UPLOAD_PASSWORD}`\n\n⚠️ **هشدار:** این پیام ۳۰ ثانیه دیگر به صورت خودکار حذف می‌شود. لطفاً همین الان لینک را کپی کنید.", 
             parse_mode='Markdown'
         )
         
-        # 👈 ارسال پیام جدید به ادمین برای ثبت در تاریخچه
+        # ۲. ثبت پیام تایید برای ادمین (بدون دست زدن به عکس رسید)
         await context.bot.send_message(
             chat_id=query.message.chat_id,
-            text=f"✅ **رسید کاربر با آیدی `{user_id}` تایید شد.**\n\nلینک برای کاربر ارسال شد و به لیست خریداران اضافه شد.",
+            text=f"✅ **رسید کاربر `{user_id}` تایید شد.**\n\nلینک ارسال شد و پس از ۳۰ ثانیه از چت کاربر حذف خواهد شد.",
             parse_mode='Markdown'
         )
 
+        # ۳. مکث ۳۰ ثانیه‌ای و سپس پاک کردن پیام لینک از چت خریدار
         await asyncio.sleep(30)
-        try: await context.bot.delete_message(chat_id=user_id, message_id=sent_msg.message_id)
-        except: pass
+        try: 
+            await context.bot.delete_message(chat_id=user_id, message_id=sent_msg.message_id)
+        except: 
+            pass
             
     elif data.startswith('reject_'):
         user_id = int(data.replace('reject_', ''))
         
+        # ۱. ارسال پیام رد به کاربر
         await context.bot.send_message(chat_id=user_id, text="❌ رسید شما رد شد.")
         
-        # 👈 ارسال پیام جدید به ادمین برای ثبت در تاریخچه
+        # ۲. ثبت پیام رد برای ادمین
         await context.bot.send_message(
             chat_id=query.message.chat_id,
-            text=f"❌ **رسید کاربر با آیدی `{user_id}` رد شد.**",
+            text=f"❌ **رسید کاربر `{user_id}` رد شد.**",
             parse_mode='Markdown'
         )
 
