@@ -258,7 +258,7 @@ async def handle_admin_reply_text(update: Update, context: ContextTypes.DEFAULT_
         await update.message.reply_text("✅ ارسال شد.")
         context.user_data['reply_to'] = None
 
-# 👈 تابع تایید و رد ادمین (با تایمر ۳۰ ثانیه)
+# 👈 تابع تایید و رد ادمین (با تسک پس‌زمینه برای حذف لینک)
 async def admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -276,19 +276,22 @@ async def admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown'
         )
         
-        # ۲. ثبت پیام تایید برای ادمین (بدون دست زدن به عکس رسید)
+        # ۲. ثبت پیام تایید برای ادمین (بدون دست زدن به عکس)
         await context.bot.send_message(
             chat_id=query.message.chat_id,
             text=f"✅ **رسید کاربر `{user_id}` تایید شد.**\n\nلینک ارسال شد و پس از ۳۰ ثانیه از چت کاربر حذف خواهد شد.",
             parse_mode='Markdown'
         )
 
-        # ۳. مکث ۳۰ ثانیه‌ای و سپس پاک کردن پیام لینک از چت خریدار
-        await asyncio.sleep(30)
-        try: 
-            await context.bot.delete_message(chat_id=user_id, message_id=sent_msg.message_id)
-        except: 
-            pass
+        # ۳. پاک کردن لینک بعد از ۳۰ ثانیه در پس‌زمینه (بدون قفل شدن ربات)
+        async def delete_later():
+            await asyncio.sleep(30)
+            try: 
+                await context.bot.delete_message(chat_id=user_id, message_id=sent_msg.message_id)
+            except: 
+                pass
+                
+        asyncio.create_task(delete_later())
             
     elif data.startswith('reject_'):
         user_id = int(data.replace('reject_', ''))
