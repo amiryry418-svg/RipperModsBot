@@ -6,7 +6,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
 # --- تنظیمات ---
-TOKEN = "توکن_فعلی_که_کار_میکنه_رو_اینجا_بذار" # 👈 همون توکنی که الان توی کدته
+TOKEN = "8789507883:AAH1O5TTOoBI46e77lj958dwU8BR1vC8hN4"
 ADMIN_USERNAME = "1808953401"    # 👈 آیدی عددی جدید ادمین
 CARD_NUMBER = "6219861804455185"
 CARD_HOLDER = "علیرضا عباس پور"
