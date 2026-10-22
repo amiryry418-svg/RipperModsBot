@@ -2,37 +2,26 @@ import logging
 import threading
 import os
 import random
+import asyncio
 from flask import Flask, request, jsonify
-from flask_cors import CORS  # 👈 اضافه شد
+from flask_cors import CORS
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
 # --- تنظیمات ---
 TOKEN = "8789507883:AAH1O5TTOoBI46e77lj958dwU8BR1vC8hN4"
-ADMIN_USERNAME = "1808953401"    # 👈 آیدی عددی ادمین
+
+# 👈 آیدی‌های جداگانه برای بخش‌های مختلف
+ADMIN_MAIN_ID = "1808953401"    # ادمین اصلی (خرید، رسیدها، پشتیبانی، دریافت مجدد لینک)
+ADMIN_PORT_ID = "1891282471"    # ادمین درخواست پورت
+
 CARD_NUMBER = "6219861804455185"
 CARD_HOLDER = "علیرضا عباس پور"
 BASE_GAME_LINK = "https://dl2.megadl.click/PS4-Hacked/GTAV/CUSA00419/BASE/"
-HTML_PAGE_URL = "https://amiryry418-svg.github.io/RipperModsBot/" 
 
-# 👈 لیست رمزها
-PASSWORD_POOL = [
-    "RipA1b2", "RipC3d4", "RipE5f6", "RipG7h8", "RipI9j0",
-    "ModA1b2", "ModC3d4", "ModE5f6", "ModG7h8", "ModI9j0",
-    "GTAa1b2", "GTAc3d4", "GTAe5f6", "GTAg7h8", "GTAi9j0",
-    "ShopA1b2", "ShopC3d4", "ShopE5f6", "ShopG7h8", "ShopI9j0",
-    "VipA1b2", "VipC3d4", "VipE5f6", "VipG7h8", "VipI9j0",
-    "ProA1b2", "ProC3d4", "ProE5f6", "ProG7h8", "ProI9j0",
-    "FastA1b2", "FastC3d4", "FastE5f6", "FastG7h8", "FastI9j0",
-    "CoolA1b2", "CoolC3d4", "CoolE5f6", "CoolG7h8", "CoolI9j0",
-    "StarA1b2", "StarC3d4", "StarE5f6", "StarG7h8", "StarI9j0",
-    "GoldA1b2", "GoldC3d4", "GoldE5f6", "GoldG7h8", "GoldI9j0"
-]
-
-USED_PASSWORDS = []
-
-# 👈 لیست جدید برای نگهداری سفارش‌های فروخته شده (کد سفارش : رمز اتصال)
-SOLD_ORDERS = {} 
+# 👈 لینک و رمز آپلود
+DIRECT_DOWNLOAD_LINK = "https://my.uupload.ir/d/D9axZ" 
+UPLOAD_PASSWORD = "mwrippersfinest" 
 
 PRODUCTS = {
     "pack_irani": {"name": "پک ایرانیزه", "price": "398,000 تومان", "photo": "https://s31.uupload.ir/files/rippermodsgtavv100/Amir/4/IMG_20261021_205807_285.jpg", "caption": "🎮 پک ایرانیزه GTA V\n\n💰 قیمت: 398,000 تومان", "is_active": False},
@@ -43,51 +32,10 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 
 # --- وب‌سرور (API) ---
 app = Flask(__name__)
-# 👈 فعال‌سازی CORS تا صفحه گیت‌هاب بتونه به سرور Render وصل بشه
-CORS(app, resources={r"/*": {"origins": "*"}})
+CORS(app, resources={r"/*": {"origins": "*"}}) 
 
 @app.route('/')
 def health_check(): return "Bot is running!", 200
-
-@app.route('/verify', methods=['POST'])
-def verify_password():
-    data = request.json
-    password = data.get('password')
-    if password in PASSWORD_POOL and password not in USED_PASSWORDS:
-        USED_PASSWORDS.append(password)
-        return jsonify({"success": True}), 200
-    else:
-        return jsonify({"success": False, "message": "رمز نامعتبر یا قبلاً استفاده شده"}), 400
-
-# 👈 مسیر جدید برای بررسی کدهای صفحه HTML
-@app.route('/verify_portal', methods=['POST', 'OPTIONS'])
-def verify_portal():
-    if request.method == 'OPTIONS':
-        return '', 200
-        
-    data = request.json
-    if not data:
-        return jsonify({"success": False, "message": "داده‌ای ارسال نشده"}), 400
-        
-    order_code = data.get('order_code')
-    connect_code = data.get('connect_code')
-    
-    # بررسی اینکه آیا این کد سفارش و کد اتصال با هم مطابقت دارن یا نه
-    if order_code in SOLD_ORDERS and SOLD_ORDERS[order_code] == connect_code:
-        
-        # لینک مقصد (لینک uupload)
-        redirect_url = "https://my.uupload.ir/d/D9axZ"
-        
-        # کدهای استفاده شده رو پاک کن تا یکبارمصرف باشن
-        del SOLD_ORDERS[order_code] 
-        
-        return jsonify({
-            "success": True, 
-            "redirect_url": redirect_url
-        }), 200
-    else:
-        return jsonify({"success": False, "message": "کد سفارش یا کد اتصال اشتباه است یا قبلا استفاده شده"}), 400
-
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
@@ -97,8 +45,10 @@ def run_flask():
 def main_menu_keyboard():
     return [
         [InlineKeyboardButton("🎮 سوپر پک", callback_data='buy_pack_super'), InlineKeyboardButton("🇮🇷 پک ایرانیزه", callback_data='buy_pack_irani')],
+        [InlineKeyboardButton("📥 دریافت مجدد لینک دانلود", callback_data='request_relink')],
+        [InlineKeyboardButton("📡 درخواست پورت", callback_data='request_port')],
         [InlineKeyboardButton("📥 دانلود بیس بازی", callback_data='base_game'), InlineKeyboardButton("📞 پشتیبانی", callback_data='support')],
-        [InlineKeyboardButton("📖 راهنمای نصب", callback_data='guide_menu')] # 👈 دکمه جدید
+        [InlineKeyboardButton("📖 راهنمای نصب", callback_data='guide_menu')]
     ]
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -118,44 +68,34 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['support_mode'] = True
         await query.edit_message_text("📞 **پشتیبانی**\n\nلطفاً مشکل خود را بنویسید:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data='back_to_menu')]]))
     
-    # 👈 بخش راهنمای نصب
+    elif query.data == 'request_port': 
+        context.user_data['port_mode'] = True
+        text = "📡 **درخواست پورت**\n\nلطفاً اطلاعات درخواست خود را در یک پیام ارسال کنید.\nمثال:\n🔹 نوع کنسول (PS4 / PS5)\n🔹 آیدی بازی (CUSA...)\n🔹 توضیحات یا مشکل شما\n\n⬇️ متن خود را ارسال کنید:"
+        await query.edit_message_text(text=text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data='back_to_menu')]]))
+    
+    elif query.data == 'request_relink':
+        user = query.from_user
+        keyboard = [[InlineKeyboardButton("✅ ارسال لینک", callback_data=f'sendlink_{user.id}')]]
+        # 👈 درخواست دریافت مجدد لینک به ادمین اصلی میره
+        await context.bot.send_message(
+            chat_id=ADMIN_MAIN_ID, 
+            text=f"🔄 **درخواست دریافت مجدد لینک**\nاز: {user.first_name} (@{user.username or 'بدون آیدی'})\n\nآیا تایید می‌کنید؟", 
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        await query.edit_message_text("✅ درخواست شما برای دریافت مجدد لینک به ادمین ارسال شد. منتظر تایید باشید.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data='back_to_menu')]]))
+    
     elif query.data == 'guide_menu':
         keyboard = [
             [InlineKeyboardButton("🎮 راهنمای PS4", callback_data='guide_ps4'), InlineKeyboardButton("🎮 راهنمای PS5", callback_data='guide_ps5')],
             [InlineKeyboardButton("🔙 بازگشت", callback_data='back_to_menu')]
         ]
-        await query.edit_message_text(
-            "📖 **راهنمای نصب**\n\nلطفاً کنسول خود را انتخاب کنید:",
-            parse_mode='Markdown',
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        await query.edit_message_text("📖 **راهنمای نصب**\n\nلطفاً کنسول خود را انتخاب کنید:", parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
     elif query.data == 'guide_ps4':
-        text = (
-            "🚨 **آموزش نصب پک در PS4 (مرحله به مرحله)**\n\n"
-            "1️⃣ **اول از همه:** فایل **بیس** رو نصب کنید (فایل اصلی بازی).\n"
-            "2️⃣ **دوم (مهم):** فایل **پک** (همون فایل‌های PKG که خریداری کردید) رو نصب کنید. این همون آپدیت بازیه.\n\n"
-            "📂 **استخراج فایل‌ها:**\n"
-            "همه پارت‌های **RAR** رو دانلود کنید و توی **یک پوشه** بریزید. سپس فقط روی **پارت ۱** راست‌کلیک کنید و **Extract Here** بزنید. (نرم‌افزار خودش بقیه پارت‌ها رو پیدا می‌کنه).\n"
-            "بعد از استخراج، فایل‌های **PKG** به دست میان.\n\n"
-            "💾 **انتقال به فلش:**\n"
-            "فایل‌های **PKG** رو به فلش یا هارد اکسترنال با فرمت **exFAT** کپی کنید. (فایل‌ها رو توی پوشه نذارید، باید مستقیم توی روت فلش باشن).\n\n"
-            "⚙️ **نصب در کنسول:**\n"
-            "بعد از جیلبریک، برید به: **Settings -> Debug settings -> Game Package installer**\n"
-            "و به ترتیب: **بیس -> پک (فایل PKG)** رو نصب کنید.\n\n"
-            "⚠️ **نکته آیدی:** همه اجزا (بیس و پک) باید آیدی CUSA یکسان داشته باشن."
-        )
-        await query.edit_message_text(
-            text=text,
-            parse_mode='Markdown',
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data='guide_menu')]])
-        )
-
+        text = "🚨 **آموزش نصب پک در PS4**\n\n1️⃣ **اول:** فایل **بیس** رو نصب کنید.\n2️⃣ **دوم:** فایل **پک** رو نصب کنید.\n\n📂 همه پارت‌ها رو دانلود و فقط روی **پارت ۱** Extract بزنید.\n💾 فایل‌های **PKG** رو به فلش (exFAT) کپی کنید.\n⚙️ برید به: **Settings -> Debug settings -> Game Package installer**\nو به ترتیب: **بیس -> پک** رو نصب کنید."
+        await query.edit_message_text(text=text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data='guide_menu')]]))
     elif query.data == 'guide_ps5':
-        await query.edit_message_text(
-            "📖 **راهنمای نصب PS5**\n\nبه زودی...",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data='guide_menu')]])
-        )
+        await query.edit_message_text("📖 **راهنمای نصب PS5**\n\nبه زودی...", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data='guide_menu')]]))
 
 async def send_product_info(query, product_key):
     product = PRODUCTS[product_key]
@@ -179,16 +119,32 @@ async def handle_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     user = update.effective_user
     keyboard = [[InlineKeyboardButton("✅ تایید", callback_data=f'approve_{user.id}')], [InlineKeyboardButton("❌ رد", callback_data=f'reject_{user.id}')]]
-    await context.bot.send_photo(chat_id=ADMIN_USERNAME, photo=update.message.photo[-1].file_id, caption=f"رسید جدید از: {user.first_name} (@{user.username or 'بدون آیدی'})", reply_markup=InlineKeyboardMarkup(keyboard))
+    # 👈 رسید به ادمین اصلی میره
+    await context.bot.send_photo(chat_id=ADMIN_MAIN_ID, photo=update.message.photo[-1].file_id, caption=f"رسید جدید از: {user.first_name} (@{user.username or 'بدون آیدی'})", reply_markup=InlineKeyboardMarkup(keyboard))
     await update.message.reply_text("✅ رسید شما دریافت شد. منتظر تایید باشید.")
 
 async def handle_support_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    
     if context.user_data.get('support_mode'):
-        user = update.effective_user
+        # 👈 پیام پشتیبانی به ادمین اصلی میره
         keyboard = [[InlineKeyboardButton("✍️ پاسخ به کاربر", callback_data=f'reply_{user.id}')]]
-        await context.bot.send_message(chat_id=ADMIN_USERNAME, text=f"📩 پیام پشتیبانی از: {user.first_name} (@{user.username or 'بدون آیدی'})\n\n{update.message.text}", reply_markup=InlineKeyboardMarkup(keyboard))
+        await context.bot.send_message(chat_id=ADMIN_MAIN_ID, text=f"📩 پیام پشتیبانی از: {user.first_name} (@{user.username or 'بدون آیدی'})\n\n{update.message.text}", reply_markup=InlineKeyboardMarkup(keyboard))
         await update.message.reply_text("✅ پیام شما دریافت شد. تیم پشتیبانی پاسخ می‌دهد.")
         context.user_data['support_mode'] = False
+        
+    elif context.user_data.get('port_mode'):
+        # 👈 درخواست پورت به ادمین پورت میره
+        keyboard = [[InlineKeyboardButton("✍️ پاسخ به کاربر", callback_data=f'reply_{user.id}')]]
+        await context.bot.send_message(
+            chat_id=ADMIN_PORT_ID, 
+            text=f"📡 **درخواست پورت جدید**\nاز: {user.first_name} (@{user.username or 'بدون آیدی'})\n\n{update.message.text}", 
+            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        await update.message.reply_text("✅ درخواست پورت شما دریافت شد. به زودی توسط ادمین بررسی می‌شود.")
+        context.user_data['port_mode'] = False
+        
     else:
         await update.message.reply_text("لطفاً از منوی /start استفاده کنید.")
 
@@ -219,28 +175,29 @@ async def admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     data = query.data
     
-    if data.startswith('approve_'):
-        user_id = int(data.replace('approve_', ''))
-        if PASSWORD_POOL:
-            password = random.choice(PASSWORD_POOL)
-            PASSWORD_POOL.remove(password)
-            
-            # 👈 اینجا رمز تولید شده رو در لیست سفارش‌های فروخته شده قرار میدیم
-            order_code = f"ORDER{random.randint(1000, 9999)}" 
-            SOLD_ORDERS[order_code] = password
-            
-        else:
-            await query.edit_message_caption(caption="❌ لیست رمزها تموم شده!")
-            return
-            
-        keyboard = [[InlineKeyboardButton("🌐 ورود به صفحه دانلود", url=HTML_PAGE_URL)]]
-        await context.bot.send_message(
+    if data.startswith('approve_') or data.startswith('sendlink_'):
+        user_id = int(data.split('_')[1])
+        
+        sent_message = await context.bot.send_message(
             chat_id=user_id, 
-            text=f"✅ پرداخت تایید شد!\n\n🔑 **کد سفارش شما:** `{order_code}`\n🔑 **کد اتصال شما:** `{password}`\n\n⚠️ روی دکمه زیر کلیک کنید و این دو کد را در صفحه وارد نمایید.", 
-            parse_mode='Markdown', 
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            text=(
+                f"✅ **لینک دانلود برای شما ارسال شد!**\n\n"
+                f"🔗 **لینک:** {DIRECT_DOWNLOAD_LINK}\n"
+                f"🔑 **رمز:** `{UPLOAD_PASSWORD}`\n\n"
+                f"⚠️ **هشدار مهم:** این پیام و لینک آن، **۳۰ ثانیه** دیگر به صورت خودکار حذف می‌شود! لطفاً همین الان لینک را کپی کنید. برای دریافت مجدد، از منوی ربات «دریافت مجدد لینک» را بزنید."
+            ), 
+            parse_mode='Markdown'
         )
-        await query.edit_message_caption(caption=f"✅ تایید شد. کد سفارش: {order_code} | رمز: {password}")
+        
+        await asyncio.sleep(30)
+        
+        try:
+            await context.bot.delete_message(chat_id=user_id, message_id=sent_message.message_id)
+        except Exception as e:
+            print(f"خطا در پاک کردن پیام: {e}")
+
+        await query.edit_message_text(text=f"✅ لینک برای کاربر ارسال شد و پس از ۳۰ ثانیه حذف شد.")
+        
     elif data.startswith('reject_'):
         user_id = int(data.replace('reject_', ''))
         await context.bot.send_message(chat_id=user_id, text="❌ رسید شما رد شد.")
@@ -256,9 +213,9 @@ def main():
     application = Application.builder().token(TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(button_handler, pattern='^buy_|^support|^base_game|^guide_menu|^guide_ps4|^guide_ps5'))
+    application.add_handler(CallbackQueryHandler(button_handler, pattern='^buy_|^support|^base_game|^guide_menu|^guide_ps4|^guide_ps5|^request_port|^request_relink'))
     application.add_handler(CallbackQueryHandler(pay_handler, pattern='^pay_'))
-    application.add_handler(CallbackQueryHandler(admin_action, pattern='^approve_|^reject_'))
+    application.add_handler(CallbackQueryHandler(admin_action, pattern='^approve_|^reject_|^sendlink_'))
     application.add_handler(CallbackQueryHandler(admin_reply_button, pattern='^reply_|^cancel_reply'))
     application.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_to_menu'))
     application.add_handler(MessageHandler(filters.PHOTO, handle_receipt))
