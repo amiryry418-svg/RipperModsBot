@@ -82,10 +82,20 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     user = query.from_user
     
-    if query.data == 'back_to_main':
+    # 👈 اینجا باگ عکس حل شده. برای دکمه‌های زیر عکس، پیام جدید میفرستیم.
+    if query.data == 'shop_menu':
+        await query.message.reply_text("🛒 **به فروشگاه خوش آمدید!**\n\nچه کاری می‌خواهید انجام دهید؟", parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(shop_menu_keyboard()))
+    elif query.data == 'request_relink':
+        keyboard = [[InlineKeyboardButton("✅ ارسال لینک", callback_data=f'sendlink_{user.id}')]]
+        await context.bot.send_message(chat_id=ADMIN_MAIN_ID, text=f"🔄 **درخواست لینک مجدد**\nاز: {user.first_name}", reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.message.reply_text("✅ درخواست شما به ادمین ارسال شد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data='back_to_main')]]))
+    elif query.data == 'support':
+        context.user_data['support_mode'] = True
+        await query.message.reply_text("📞 **پشتیبانی**\n\nلطفاً مشکل خود را بنویسید:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data='back_to_main')]]))
+
+    # 👈 از اینجا به بعد پیام‌ها متنی هستن و با edit کار می‌کنن
+    elif query.data == 'back_to_main':
         await query.edit_message_text("لطفاً از منوی اصلی انتخاب کنید:", reply_markup=InlineKeyboardMarkup(main_menu_keyboard()))
-    elif query.data == 'shop_menu':
-        await query.edit_message_text("🛒 **به فروشگاه خوش آمدید!**\n\nچه کاری می‌خواهید انجام دهید؟", reply_markup=InlineKeyboardMarkup(shop_menu_keyboard()))
     elif query.data == 'menu_products':
         await query.edit_message_text("🎮 **پک‌های موجود:**", reply_markup=InlineKeyboardMarkup(products_keyboard()))
     elif query.data == 'buy_pack_irani': 
@@ -95,21 +105,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == 'base_game': 
         await query.edit_message_text(text=f"📥 **دانلود بیس بازی:**\n\n`{BASE_GAME_LINK}`", parse_mode='Markdown', reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data='menu_products')]]))
     
-    elif query.data == 'request_relink':
-        keyboard = [[InlineKeyboardButton("✅ ارسال لینک", callback_data=f'sendlink_{user.id}')]]
-        await context.bot.send_message(chat_id=ADMIN_MAIN_ID, text=f"🔄 **درخواست لینک مجدد**\nاز: {user.first_name}", reply_markup=InlineKeyboardMarkup(keyboard))
-        await query.edit_message_text("✅ درخواست شما به ادمین ارسال شد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data='back_to_main')]]))
-    
     elif query.data == 'req_build_pack':
         context.user_data['awaiting_service'] = "ساخت پک اختصاصی GTA V"
         await query.edit_message_text("🏗 **سفارش ساخت پک**\n\nلطفاً جزئیات درخواست خود را ارسال کنید.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 لغو", callback_data='shop_menu')]]))
     elif query.data == 'req_port_nostalgia':
         context.user_data['awaiting_service'] = "پورت بازی‌های نوستالژی"
         await query.edit_message_text("🕹 **سفارش پورت نوستالژی**\n\nلطفاً نام بازی و کنسول مقصد را ارسال کنید.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 لغو", callback_data='shop_menu')]]))
-    
-    elif query.data == 'support':
-        context.user_data['support_mode'] = True
-        await query.edit_message_text("📞 **پشتیبانی**\n\nلطفاً مشکل خود را بنویسید:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data='back_to_main')]]))
 
 # --- توابع محصولات و تخفیف ---
 async def send_product_info(query, context, product_key):
@@ -123,7 +124,6 @@ async def send_product_info(query, context, product_key):
         [InlineKeyboardButton("💳 خرید و پرداخت", callback_data=f'pay_{product_key}')],
         [InlineKeyboardButton("🔙 بازگشت", callback_data='menu_products')]
     ]
-    # نکته مهم: اینجا از reply_photo استفاده شده و پیام قبلی پاک نمیشه تا تداخلی پیش نیاد
     await query.message.reply_photo(photo=product['photo'], caption=caption, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def enter_discount_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -143,7 +143,6 @@ async def process_discount_code(update: Update, context: ContextTypes.DEFAULT_TY
     else:
         await update.message.reply_text("❌ کد تخفیف نامعتبر است.")
     
-    # نمایش دوباره محصول
     product_key = context.user_data.get('current_product', 'pack_super')
     product = PRODUCTS[product_key]
     price_text = f"~~{product['price']:,} تومان~~ **{product['price'] - DISCOUNT_AMOUNT:,} تومان**" if context.user_data.get('discount_applied') else f"{product['price']:,} تومان"
@@ -245,17 +244,12 @@ def main():
     application = Application.builder().token(TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
-    
-    # هندلر دکمه‌های اصلی
     application.add_handler(CallbackQueryHandler(button_handler))
-    
-    # هندلرهای اختصاصی
     application.add_handler(CallbackQueryHandler(enter_discount_handler, pattern='^enter_discount$'))
     application.add_handler(CallbackQueryHandler(back_to_product, pattern='^back_to_product$'))
     application.add_handler(CallbackQueryHandler(pay_handler, pattern='^pay_'))
     application.add_handler(CallbackQueryHandler(admin_action, pattern='^approve_|^reject_|^sendlink_'))
     application.add_handler(CallbackQueryHandler(admin_reply_button, pattern='^reply_|^cancel_reply'))
-    
     application.add_handler(MessageHandler(filters.PHOTO, handle_receipt))
     
     async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
