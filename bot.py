@@ -78,7 +78,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear() 
     user_id = update.effective_user.id
     
-    # 👈 بررسی عضویت فقط همینجا
     if not await is_user_member(user_id, context):
         join_text = (
             "⚠️ **برای استفاده از ربات، ابتدا باید در کانال ما عضو شوید.**\n\n"
@@ -108,7 +107,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = query.message.chat_id
     user_id = query.from_user.id
     
-    # 👈 دکمه بررسی عضویت
     if query.data == 'check_join':
         if await is_user_member(user_id, context):
             welcome_text = (
@@ -191,7 +189,6 @@ async def handle_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.photo: return
     user = update.effective_user
     
-    # 👈 ارسال رسید همراه با اطلاعات کامل به ادمین
     keyboard = [
         [InlineKeyboardButton("✅ تایید", callback_data=f'approve_{user.id}')], 
         [InlineKeyboardButton("❌ رد", callback_data=f'reject_{user.id}')]
@@ -261,7 +258,7 @@ async def handle_admin_reply_text(update: Update, context: ContextTypes.DEFAULT_
         await update.message.reply_text("✅ ارسال شد.")
         context.user_data['reply_to'] = None
 
-# 👈 تابع تایید و رد ادمین (با ذخیره رسید)
+# 👈 تابع تایید و رد ادمین (کاملاً ایزوله و بدون دست زدن به عکس)
 async def admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -277,33 +274,29 @@ async def admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text=f"✅ **لینک:** {DIRECT_DOWNLOAD_LINK}\n🔑 **رمز:** `{UPLOAD_PASSWORD}`\n\n⚠️ ۳۰ ثانیه فرصت دارید.", 
             parse_mode='Markdown'
         )
+        
+        # 👈 ارسال پیام جدید به ادمین برای ثبت در تاریخچه
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text=f"✅ **رسید کاربر با آیدی `{user_id}` تایید شد.**\n\nلینک برای کاربر ارسال شد و به لیست خریداران اضافه شد.",
+            parse_mode='Markdown'
+        )
+
         await asyncio.sleep(30)
         try: await context.bot.delete_message(chat_id=user_id, message_id=sent_msg.message_id)
         except: pass
-        
-        # 👈 ذخیره رسید: تغییر کپشن به جای پاک کردن
-        try:
-            await query.edit_message_caption(
-                caption=f"✅ **تایید شده**\n\n🆔 آیدی کاربر: `{user_id}`\n👤 وضعیت: لینک ارسال شد.",
-                parse_mode='Markdown',
-                reply_markup=None
-            )
-        except Exception as e:
-            print(f"Error updating caption: {e}")
             
     elif data.startswith('reject_'):
         user_id = int(data.replace('reject_', ''))
+        
         await context.bot.send_message(chat_id=user_id, text="❌ رسید شما رد شد.")
         
-        # 👈 ذخیره رسید: تغییر کپشن به جای پاک کردن
-        try:
-            await query.edit_message_caption(
-                caption=f"❌ **رد شده**\n\n🆔 آیدی کاربر: `{user_id}`\n👤 وضعیت: رسید رد شد.",
-                parse_mode='Markdown',
-                reply_markup=None
-            )
-        except Exception as e:
-            print(f"Error updating caption: {e}")
+        # 👈 ارسال پیام جدید به ادمین برای ثبت در تاریخچه
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text=f"❌ **رسید کاربر با آیدی `{user_id}` رد شد.**",
+            parse_mode='Markdown'
+        )
 
 # --- راه‌اندازی ---
 def main():
