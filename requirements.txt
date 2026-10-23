@@ -1,2 +1,4 @@
-python-telegram-bot>=20.8,<23
-Flask>=3.0,<4
+python-telegram-bot>=21.10,<22.0
+psycopg2-binary>=2.9.9,<3.0
+Flask>=3.0,<4.0
+gunicorn>=22.0,<24.0
