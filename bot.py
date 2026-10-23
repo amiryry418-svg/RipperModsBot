@@ -493,17 +493,27 @@ def main():
     log.info('RipperMods bot starting')
     application.run_polling(drop_pending_updates=False, close_loop=False, stop_signals=None)
 
-_bot_thread=None
-_bot_error=None
+_bot_thread = None
+_bot_error = None
+
+
 def run_bot_thread():
     global _bot_error
-    try: main()
+    try:
+        import asyncio
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        main()
     except Exception as exc:
-        _bot_error=exc; log.exception('Bot stopped during startup/runtime')
+        _bot_error = exc
+        log.exception("Bot stopped during startup/runtime")
 
-if __name__=='__main__':
-    main()
+
+if __name__ == "__main__":
+    run_bot_thread()
 else:
-    # Render Web Service: keep Flask/Gunicorn alive while polling runs in a separate thread.
-    _bot_thread=threading.Thread(target=run_bot_thread,name='telegram-bot',daemon=True)
+    _bot_thread = threading.Thread(
+        target=run_bot_thread,
+        name="telegram-bot",
+        daemon=True
+    )
     _bot_thread.start()
