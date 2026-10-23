@@ -97,6 +97,8 @@ INSTALL_TUTORIAL = """
 5️⃣ **نصب روی کنسول:** فلش را به کنسول وصل کنید. وارد مسیر `Debug Settings / Package Installer` شوید و فایل را نصب کنید.
 """
 
+REDOWNLOAD_PRICE = Decimal('150')
+
 _db_initialized = False
 _db_lock = threading.Lock()
 
@@ -193,7 +195,7 @@ def main_keyboard():
         [KeyboardButton('📦 سفارش‌های من'), KeyboardButton('📖 آموزش نصب')],
         [KeyboardButton('🎟 کد تخفیف'), KeyboardButton('💬 پشتیبانی')],
         [KeyboardButton('🎮 درخواست پورت'), KeyboardButton('📦 درخواست پک اختصاصی')],
-        [KeyboardButton('🔄 اتصال مجدد / شروع مجدد')]
+        [KeyboardButton('🔄 دریافت مجدد لینک'), KeyboardButton('🔄 اتصال مجدد / شروع مجدد')]
     ], resize_keyboard=True)
 
 def back_kb():
@@ -239,14 +241,15 @@ async def show_shop(update, context):
         text = f"🛍 {p['name']}\n{p['description']}\n💵 قیمت: {int(p['price'])} تومان"
         
         if p['name'] == 'پک ایرانیزه':
-            kb = InlineKeyboardMarkup([[InlineKeyboardButton('🔒 پرداخت غیرفعال است', callback_data='locked')]])
+            kb = InlineKeyboardMarkup([[InlineKeyboardButton('🔒 به زودی...', callback_data='locked')]])
+            photo = 'https://s31.uupload.ir/files/rippermodsgtavv100/Amir/4/IMG_20261021_205807_285.jpg'
         else:
             kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton('خرید با کیف پول', callback_data=f"buyw:{p['id']}"), InlineKeyboardButton('پرداخت کارت‌به‌کارت', callback_data=f"buyc:{p['id']}")],
                 [InlineKeyboardButton('🎟 وارد کردن کد تخفیف', callback_data="wallet:coupon")]
             ])
+            photo = 'https://s50.uupload.ir/files/rippermodsgtavv100/Amir/IMG_20261021_205811_651.jpg' if p['name'] == 'سوپر پک' else ''
             
-        photo = 'https://s50.uupload.ir/files/rippermodsgtavv100/Amir/IMG_20261021_205811_651.jpg' if p['name'] == 'سوپر پک' else ''
         try:
             if photo:
                 await update.effective_message.reply_photo(photo, caption=text, reply_markup=kb)
@@ -382,7 +385,7 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = q.data or ''
     try:
         if data == 'locked':
-            await q.message.reply_text('🔒 پرداخت این محصول فعلاً غیرفعال است.')
+            await q.message.reply_text('🔒 این محصول به زودی اضافه خواهد شد.')
             return
 
         if data == 'wallet:coupon':
@@ -597,6 +600,45 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data.update(flow='port_reply', port_id=int(data.split(':')[1]))
             await q.message.reply_text('پاسخ درخواست را بنویسید:')
             return
+            
+        if data == 'redl_wallet' or data == 'redl_card':
+            method = 'wallet' if data == 'redl_wallet' else 'card'
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT 1 FROM orders WHERE user_id=%s AND product_name='سوپر پک' AND status='delivered'", (uid,))
+                    if not cur.fetchone():
+                        await q.message.reply_text('⛔ شما هنوز این پک را خریداری نکرده‌اید.')
+                        return
+                        
+            if method == 'wallet':
+                with db() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute('SELECT wallet FROM users WHERE telegram_id=%s FOR UPDATE', (uid,))
+                        user = cur.fetchone()
+                        if not user or user['wallet'] < REDOWNLOAD_PRICE:
+                            await q.message.reply_text('موجودی کیف پول کافی نیست.')
+                            return
+                        cur.execute('UPDATE users SET wallet=wallet-%s WHERE telegram_id=%s', (REDOWNLOAD_PRICE, uid))
+                        order = 'RE-' + str(int(time.time()))[-6:]
+                        cur.execute("INSERT INTO orders(user_id,product_id,product_name,amount,payment_method,status,wallet_debited,delivery_sent) VALUES(%s,(SELECT id FROM products WHERE name='سوپر پک'),'دریافت مجدد لینک',%s,'wallet','delivered',true,true) RETURNING id", (uid, REDOWNLOAD_PRICE))
+                        new_oid = cur.fetchone()['id']
+                        cur.execute("INSERT INTO wallet_transactions(user_id,amount,kind,reference,reason,idempotency_key) VALUES(%s,%s,'purchase',%s,%s,%s)", (uid, -REDOWNLOAD_PRICE, str(new_oid), 'دریافت مجدد لینک', f'redl-{new_oid}'))
+                await q.message.reply_text('پرداخت انجام شد. در حال ارسال لینک‌ها...')
+                await deliver(context, uid, new_oid, 'دریافت مجدد لینک')
+                user_info = f"{q.from_user.first_name} (@{q.from_user.username or 'بدون‌یوزرنیم'}) - آیدی: {uid}"
+                await log_event(context, f'🔄 دریافت مجدد لینک (کیف پول)\nکاربر: {user_info}\nمبلغ: {REDOWNLOAD_PRICE} تومان')
+            else:
+                with db() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("INSERT INTO orders(user_id,product_id,product_name,amount,payment_method,status,coupon_id) VALUES(%s,(SELECT id FROM products WHERE name='سوپر پک'),'دریافت مجدد لینک',%s,'card','pending',NULL) RETURNING id", (uid, REDOWNLOAD_PRICE))
+                        order = cur.fetchone()['id']
+                card = os.getenv('CARD_NUMBER', 'تنظیم نشده').strip() or 'تنظیم نشده'
+                holder = os.getenv('CARD_HOLDER', 'تنظیم نشده').strip() or 'تنظیم نشده'
+                await q.message.reply_text(f'درخواست دریافت مجدد لینک #{order} ثبت شد.\nمبلغ: {int(REDOWNLOAD_PRICE)} تومان\nکارت: {card}\nبه نام: {holder}\nپس از پرداخت، تصویر رسید را ارسال کنید.', reply_markup=back_kb())
+                context.user_data.update(flow='order_receipt', order_id=order)
+                user_info = f"{q.from_user.first_name} (@{q.from_user.username or 'بدون‌یوزرنیم'}) - آیدی: {uid}"
+                await log_event(context, f'🔄 درخواست دریافت مجدد لینک (کارت‌به‌کارت)\nسفارش #{order}\nکاربر: {user_info}\nمبلغ: {int(REDOWNLOAD_PRICE)}')
+            return
 
     except Exception:
         log.exception('Callback handler error')
@@ -634,6 +676,19 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text == '📦 درخواست پک اختصاصی':
         context.user_data['flow'] = 'custom_pack_game'
         await msg.reply_text('نام بازی/نرم‌افزار مورد نظر خود را وارد کنید:', reply_markup=back_kb()); return
+    if text == '🔄 دریافت مجدد لینک':
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1 FROM orders WHERE user_id=%s AND product_name='سوپر پک' AND status='delivered'", (u.id,))
+                if not cur.fetchone():
+                    await msg.reply_text('⛔ شما هنوز این پک را خریداری نکرده‌اید.', reply_markup=main_keyboard())
+                    return
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton('پرداخت با کیف پول', callback_data='redl_wallet')],
+            [InlineKeyboardButton('پرداخت کارت‌به‌کارت', callback_data='redl_card')]
+        ])
+        await msg.reply_text(f'برای دریافت مجدد لینک‌های دانلود، مبلغ {int(REDOWNLOAD_PRICE)} تومان هزینه دارد. نحوه پرداخت را انتخاب کنید:', reply_markup=kb)
+        return
     if is_admin(u.id) and text == 'پنل مدیریت':
         await msg.reply_text('پنل مدیریت:', reply_markup=admin_kb()); return
     flow = context.user_data.get('flow')
@@ -771,8 +826,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.reply_text(f"کاربر: {target}\nنام: {r['first_name'] if r else 'یافت نشد'}\nموجودی: {int(r['wallet']) if r else '-'}")
             audit(u.id, 'user_lookup', str(target))
             context.user_data.clear(); return
-        
-        # --- دکمه‌ای کردن تغییر موجودی (فقط ادمین اصلی) ---
         if flow == 'adm_wallet_id':
             if not is_super(u.id): return
             target = int(text)
@@ -808,8 +861,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
             await log_event(context, f'💰 تغییر موجودی کاربر {target}: {int(amount)} | دلیل: {reason} | مدیر {u.id}')
             context.user_data.clear(); return
-
-        # --- دکمه‌ای کردن ساخت کد تخفیف (فقط ادمین اصلی) ---
         if flow == 'adm_coupon_code':
             if not is_super(u.id): return
             code = text.upper()
