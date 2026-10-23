@@ -114,7 +114,8 @@ def init_db():
             with conn.cursor() as cur:
                 for sql in schema:
                     cur.execute(sql)
-                cur.execute("INSERT INTO products(name,description,price) SELECT %s,%s,%s WHERE NOT EXISTS (SELECT 1 FROM products WHERE name=%s)", ('سوپر پک', 'بسته ویژه RipperMods', _get_decimal_env('SUPER_PACK_PRICE', '0'), 'سوپر پک'))
+                cur.execute("DELETE FROM products WHERE name='Super Pack'")
+                cur.execute("INSERT INTO products(name,description,price) SELECT %s,%s,%s WHERE NOT EXISTS (SELECT 1 FROM products WHERE name=%s)", ('سوپر پک', 'بسته ویژه RipperMods', Decimal('799'), 'سوپر پک'))
         _db_initialized = True
 
 def audit(admin_id: int, action: str, target: str = '', details: str = ''):
@@ -195,7 +196,7 @@ async def show_shop(update, context):
             [InlineKeyboardButton('خرید با کیف پول', callback_data=f"buyw:{p['id']}"), InlineKeyboardButton('پرداخت کارت‌به‌کارت', callback_data=f"buyc:{p['id']}")],
             [InlineKeyboardButton('🎟 وارد کردن کد تخفیف', callback_data="wallet:coupon")]
         ])
-        photo = os.getenv('SUPER_PACK_PHOTO', '').strip() if p['name'] == 'سوپر پک' else ''
+        photo = 'https://s50.uupload.ir/files/rippermodsgtavv100/Amir/IMG_20261021_205811_651.jpg' if p['name'] == 'سوپر پک' else ''
         try:
             if photo:
                 await update.effective_message.reply_photo(photo, caption=text, reply_markup=kb)
@@ -574,11 +575,12 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data.clear()
             await msg.reply_text(f'درخواست شارژ #{rid} ثبت شد و منتظر بررسی مدیر اصلی است.', reply_markup=main_keyboard())
             kb = InlineKeyboardMarkup([[InlineKeyboardButton('تأیید شارژ', callback_data=f'topup:{rid}:approve'), InlineKeyboardButton('رد شارژ', callback_data=f'topup:{rid}:reject')]])
+            user_info = f"{u.first_name} (@{u.username or 'بدون‌یوزرنیم'}) - آیدی: {u.id}"
             try:
-                await context.bot.send_photo(SUPER_ADMIN, file_id, caption=f'درخواست شارژ #{rid}\nکاربر: {u.first_name} (@{u.username or "بدون‌یوزرنیم"})\nآیدی: {u.id}\nمبلغ: {amount} تومان', reply_markup=kb)
+                await context.bot.send_photo(SUPER_ADMIN, file_id, caption=f'درخواست شارژ #{rid}\nکاربر: {user_info}\nمبلغ: {amount} تومان', reply_markup=kb)
             except TelegramError:
                 pass
-            await log_photo(context, file_id, f'🧾 رسید شارژ #{rid}\nکاربر: {u.first_name} (@{u.username or "بدون‌یوزرنیم"})\nآیدی: {u.id}\nمبلغ: {amount} تومان')
+            await log_photo(context, file_id, f'🧾 رسید شارژ #{rid}\nکاربر: {user_info}\nمبلغ: {amount} تومان')
             return
         if flow == 'order_receipt' and msg.photo:
             rid = context.user_data.get('order_id')
@@ -592,11 +594,12 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await msg.reply_text('سفارش در انتظار یافت نشد.'); return
             await msg.reply_text(f'رسید سفارش #{rid} دریافت شد؛ پس از بررسی مدیر اصلی اطلاع می‌دهیم.', reply_markup=main_keyboard())
             kb = InlineKeyboardMarkup([[InlineKeyboardButton('تأیید و تحویل', callback_data=f'orderreview:{rid}:approve'), InlineKeyboardButton('رد سفارش', callback_data=f'orderreview:{rid}:reject')]])
+            user_info = f"{u.first_name} (@{u.username or 'بدون‌یوزرنیم'}) - آیدی: {u.id}"
             try:
-                await context.bot.send_photo(SUPER_ADMIN, file_id, caption=f"رسید سفارش #{rid}\nکاربر: {u.first_name} (@{u.username or 'بدون‌یوزرنیم'})\nآیدی: {u.id}\nمحصول: {r['product_name']}\nمبلغ: {r['amount']} تومان", reply_markup=kb)
+                await context.bot.send_photo(SUPER_ADMIN, file_id, caption=f"رسید سفارش #{rid}\nکاربر: {user_info}\nمحصول: {r['product_name']}\nمبلغ: {r['amount']} تومان", reply_markup=kb)
             except TelegramError:
                 pass
-            await log_photo(context, file_id, f"🧾 رسید سفارش #{rid}\nکاربر: {u.first_name} (@{u.username or 'بدون‌یوزرنیم'})\nآیدی: {u.id}\nمحصول: {r['product_name']}\nمبلغ: {r['amount']} تومان")
+            await log_photo(context, file_id, f"🧾 رسید سفارش #{rid}\nکاربر: {user_info}\nمحصول: {r['product_name']}\nمبلغ: {r['amount']} تومان")
             return
         if flow == 'coupon_apply':
             code = text.upper()
