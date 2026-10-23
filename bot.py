@@ -21,8 +21,8 @@ logging.basicConfig(level=os.getenv('LOG_LEVEL','INFO'), format='%(asctime)s %(l
 log = logging.getLogger('rippermods')
 app = Flask(__name__)
 
-BOT_TOKEN = os.environ.get('BOT_TOKEN')
-DATABASE_URL = os.environ.get('DATABASE_URL')
+BOT_TOKEN = "8789507883:AAH1O5TTOoBI46e77lj958dwU8BR1vC8hN4"
+DATABASE_URL = "postgresql://rippermods_user:hjLKTzTOf8UqFkyispM0UYqz3kOjjPnR@dpg-dbdkiq3ncjis73ah6g7g-a/rippermods"
 LOG_CHANNEL_ID = os.environ.get('LOG_CHANNEL_ID', '-1004308422504')
 try:
     LOG_CHANNEL_ID = int(LOG_CHANNEL_ID) if LOG_CHANNEL_ID else None
