@@ -348,10 +348,10 @@ async def deliver(context, uid, order_id, product_name):
 
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("UPDATE orders SET status='delivered',delivery_sent=true,updated_at=now() WHERE id=%s AND status IN ('approved') AND delivery_sent=false RETURNING id", (order_id,))
-            row = cur.fetchone()
-    if not row:
-        return
+                cur.execute("UPDATE orders SET status='delivered',delivery_sent=true,updated_at=now() WHERE id=%s AND status IN ('approved', 'delivered') AND delivery_sent=false RETURNING id", (order_id,))
+    row = cur.fetchone()
+if not row:
+    return
 
     msg_header = f'🎉 محصول شما آماده تحویل است!\nسفارش: #{order_id}\nمحصول: {product_name}\n\n⚠️ توجه: این لینک‌ها فقط تا ۵ روز آینده قابل استفاده هستند.\n\n'
     if password:
