@@ -160,6 +160,7 @@ def init_db():
                     cur.execute(sql)
                 cur.execute("UPDATE products SET active=false WHERE name='Super Pack'")
                 cur.execute("UPDATE products SET price=799, name='سوپر پک', description='بسته ویژه RipperMods', active=true WHERE name='سوپر پک'")
+                cur.execute("UPDATE orders SET product_name='سوپر پک' WHERE product_name='Super Pack'")
                 cur.execute("INSERT INTO products(name,description,price,active) SELECT %s,%s,%s,true WHERE NOT EXISTS (SELECT 1 FROM products WHERE name=%s)", ('سوپر پک', 'بسته ویژه RipperMods', Decimal('799'), 'سوپر پک'))
                 cur.execute("INSERT INTO products(name,description,price,active) SELECT %s,%s,%s,true WHERE NOT EXISTS (SELECT 1 FROM products WHERE name=%s)", ('پک ایرانیزه', 'به زودی...', Decimal('0'), 'پک ایرانیزه'))
         _db_initialized = True
@@ -605,7 +606,7 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             method = 'wallet' if data == 'redl_wallet' else 'card'
             with db() as conn:
                 with conn.cursor() as cur:
-                    cur.execute("SELECT 1 FROM orders WHERE user_id=%s AND product_name='سوپر پک' AND status='delivered'", (uid,))
+                    cur.execute("SELECT 1 FROM orders WHERE user_id=%s AND (product_name='سوپر پک' OR product_name='Super Pack') AND status='delivered'", (uid,))
                     if not cur.fetchone():
                         await q.message.reply_text('⛔ شما هنوز این پک را خریداری نکرده‌اید.')
                         return
@@ -679,7 +680,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text == '🔄 دریافت مجدد لینک':
         with db() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT 1 FROM orders WHERE user_id=%s AND product_name='سوپر پک' AND status='delivered'", (u.id,))
+                cur.execute("SELECT 1 FROM orders WHERE user_id=%s AND (product_name='سوپر پک' OR product_name='Super Pack') AND status='delivered'", (u.id,))
                 if not cur.fetchone():
                     await msg.reply_text('⛔ شما هنوز این پک را خریداری نکرده‌اید.', reply_markup=main_keyboard())
                     return
