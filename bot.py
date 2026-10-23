@@ -56,35 +56,6 @@ PORT_ADMIN = _optional_int_env('PORT_ADMIN')
 ADMIN3 = _optional_int_env('ADMIN3')
 DELETE_DELIVERY = os.getenv('DELETE_DELIVERY_AFTER_30_SECONDS', 'true').lower() in ('1', 'true', 'yes')
 
-DOWNLOAD_LINKS = [
-    "https://dl2.megadl.click/PS4-Hacked/GTAV/CUSA00419/BASE/",
-    "https://s17.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part25.rar",
-    "https://s17.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part24.rar",
-    "https://s17.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part23.rar",
-    "https://s17.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part22.rar",
-    "https://s17.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part21.rar",
-    "https://s17.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part20.rar",
-    "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part19.rar",
-    "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part18.rar",
-    "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part17.rar",
-    "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part16.rar",
-    "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part15.rar",
-    "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part14.rar",
-    "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part13.rar",
-    "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part12.rar",
-    "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part11.rar",
-    "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part10.rar",
-    "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part09.rar",
-    "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part08.rar",
-    "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part07.rar",
-    "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part06.rar",
-    "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part05.rar",
-    "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part04.rar",
-    "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part03.rar",
-    "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part02.rar",
-    "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part01.rar"
-]
-
 INSTALL_TUTORIAL = """
 🎮 **آموزش نصب پک GTA V (نسخه PS4/PS5)**
 
@@ -148,6 +119,7 @@ def init_db():
             """CREATE TABLE IF NOT EXISTS support_messages (id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL REFERENCES users(telegram_id), direction TEXT NOT NULL CHECK(direction IN ('user_to_admin','admin_to_user')), message_text TEXT, file_id TEXT, file_type TEXT, admin_id BIGINT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())""",
             """CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_by BIGINT, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())""",
             """CREATE TABLE IF NOT EXISTS admin_audit (id BIGSERIAL PRIMARY KEY, admin_id BIGINT NOT NULL, action TEXT NOT NULL, target TEXT, details TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())""",
+            """CREATE TABLE IF NOT EXISTS product_links (id BIGSERIAL PRIMARY KEY, product_id BIGINT NOT NULL REFERENCES products(id) ON DELETE CASCADE, link TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())""",
             "CREATE INDEX IF NOT EXISTS idx_orders_user_created ON orders(user_id, created_at DESC)",
             "CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)",
             "CREATE INDEX IF NOT EXISTS idx_topups_status ON topups(status)",
@@ -163,6 +135,42 @@ def init_db():
                 cur.execute("UPDATE orders SET product_name='سوپر پک' WHERE product_name='Super Pack'")
                 cur.execute("INSERT INTO products(name,description,price,active) SELECT %s,%s,%s,true WHERE NOT EXISTS (SELECT 1 FROM products WHERE name=%s)", ('سوپر پک', 'بسته ویژه RipperMods', Decimal('799'), 'سوپر پک'))
                 cur.execute("INSERT INTO products(name,description,price,active) SELECT %s,%s,%s,true WHERE NOT EXISTS (SELECT 1 FROM products WHERE name=%s)", ('پک ایرانیزه', 'به زودی...', Decimal('0'), 'پک ایرانیزه'))
+                
+                # افزودن لینک‌های اولیه به دیتابیس در صورتی که خالی باشد
+                cur.execute("SELECT id FROM products WHERE name='سوپر پک'")
+                prod_id = cur.fetchone()['id']
+                cur.execute("SELECT count(*) c FROM product_links WHERE product_id=%s", (prod_id,))
+                if cur.fetchone()['c'] == 0:
+                    initial_links = [
+                        "https://dl2.megadl.click/PS4-Hacked/GTAV/CUSA00419/BASE/",
+                        "https://s17.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part25.rar",
+                        "https://s17.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part24.rar",
+                        "https://s17.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part23.rar",
+                        "https://s17.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part22.rar",
+                        "https://s17.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part21.rar",
+                        "https://s17.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part20.rar",
+                        "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part19.rar",
+                        "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part18.rar",
+                        "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part17.rar",
+                        "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part16.rar",
+                        "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part15.rar",
+                        "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part14.rar",
+                        "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part13.rar",
+                        "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part12.rar",
+                        "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part11.rar",
+                        "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part10.rar",
+                        "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part09.rar",
+                        "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part08.rar",
+                        "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part07.rar",
+                        "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part06.rar",
+                        "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part05.rar",
+                        "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part04.rar",
+                        "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part03.rar",
+                        "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part02.rar",
+                        "https://s25.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part01.rar"
+                    ]
+                    for link in initial_links:
+                        cur.execute("INSERT INTO product_links(product_id, link) VALUES(%s, %s)", (prod_id, link))
         _db_initialized = True
 
 def audit(admin_id: int, action: str, target: str = '', details: str = ''):
@@ -209,7 +217,8 @@ def admin_kb():
         [InlineKeyboardButton('🎟 ساخت کد تخفیف', callback_data='adm:coupon'), InlineKeyboardButton('🔎 جست‌وجوی کاربر', callback_data='adm:finduser')],
         [InlineKeyboardButton('💰 تغییر موجودی', callback_data='adm:wallet'), InlineKeyboardButton('⚙️ تنظیمات پرداخت', callback_data='adm:settings')],
         [InlineKeyboardButton('🎮 درخواست‌های پورت', callback_data='adm:ports'), InlineKeyboardButton('💬 پاسخ پشتیبانی', callback_data='adm:support')],
-        [InlineKeyboardButton('📣 پیام همگانی', callback_data='adm:broadcast'), InlineKeyboardButton('📜 سوابق مدیران', callback_data='adm:audit')],
+        [InlineKeyboardButton('🔗 تغییر لینک محصولات', callback_data='adm:edit_links'), InlineKeyboardButton('📣 پیام همگانی', callback_data='adm:broadcast')],
+        [InlineKeyboardButton('📜 سوابق مدیران', callback_data='adm:audit')]
     ])
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -344,8 +353,6 @@ async def review_order(q, context, rid, decision, admin_id):
     await log_event(context, f"{'✅' if decision == 'approve' else '❌'} سفارش #{rid} {new} | کاربر {r['user_id']} | مدیر {admin_id}")
 
 async def deliver(context, uid, order_id, product_name):
-    password = os.getenv('UPLOAD_PASSWORD', '').strip()
-
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute("UPDATE orders SET status='delivered',delivery_sent=true,updated_at=now() WHERE id=%s AND status IN ('approved', 'delivered') AND delivery_sent=false RETURNING id", (order_id,))
@@ -354,10 +361,22 @@ async def deliver(context, uid, order_id, product_name):
         log.warning(f"Order {order_id} not delivered: row not found or already sent.")
         return
 
+    # واکشی لینک‌ها از دیتابیس
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT pl.link FROM product_links pl JOIN products p ON pl.product_id = p.id WHERE p.name='سوپر پک' ORDER BY pl.id")
+            links = [r['link'] for r in cur.fetchall()]
+
+    if not links:
+        try:
+            await context.bot.send_message(uid, '❌ متأسفانه لینک‌های دانلود این محصول در حال حاضر در دسترس نیست. لطفاً با پشتیبانی تماس بگیرید.')
+        except TelegramError:
+            pass
+        return
+
     msg_header = f'🎉 محصول شما آماده تحویل است!\nسفارش: #{order_id}\nمحصول: {product_name}\n\n'
-    msg_header += '⚠️ توجه: لینک‌های دانلود به صورت یک فایل متنی در پیام بعدی برای شما ارسال می‌شود.\n\n'
-    if password:
-        msg_header += f'🔑 رمز فایل: {password}\n'
+    msg_header += '⚠️ توجه: لینک‌های دانلود به صورت یک فایل متنی در پیام بعدی برای شما ارسال می‌شود.\n'
+    msg_header += '⚠️ این لینک‌ها فقط تا ۵ روز آینده قابل استفاده هستند.'
 
     try:
         await context.bot.send_message(uid, msg_header)
@@ -366,7 +385,7 @@ async def deliver(context, uid, order_id, product_name):
         return
 
     # --- ساخت فایل متنی برای لینک‌ها ---
-    file_content = "\n".join(DOWNLOAD_LINKS)
+    file_content = "⚠️ این لینک‌ها فقط تا 5 روز آینده قابل استفاده هستند.\n\n" + "\n".join(links)
     file_io = io.BytesIO(file_content.encode('utf-8'))
     file_io.name = f"RipperMods_Links.txt"
 
@@ -567,6 +586,24 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         cur.execute('SELECT * FROM admin_audit ORDER BY id DESC LIMIT 20')
                         rows = cur.fetchall()
                 await q.message.reply_text('\n'.join([f"{r['created_at']:%m-%d %H:%M} | مدیر {r['admin_id']} | {r['action']} | {r['target']} | {r['details']}" for r in rows]) or 'سابقه‌ای ثبت نشده است.')
+            elif action == 'edit_links':
+                if not is_super(uid):
+                    await q.message.reply_text('⛔ فقط مدیر اصلی اجازه تغییر لینک‌ها را دارد.')
+                    return
+                with db() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute('SELECT id, name FROM products WHERE active=true ORDER BY id')
+                        rows = cur.fetchall()
+                kb = InlineKeyboardMarkup([[InlineKeyboardButton(r['name'], callback_data=f"chg_links:{r['id']}")] for r in rows])
+                await q.message.reply_text('محصولی که می‌خواهید لینک‌های آن را تغییر دهید انتخاب کنید:', reply_markup=kb)
+            return
+
+        if data.startswith('chg_links:'):
+            if not is_super(uid): return
+            pid = int(data.split(':')[1])
+            context.user_data['flow'] = 'edit_links_text'
+            context.user_data['edit_links_pid'] = pid
+            await q.message.reply_text('لطفاً تمام لینک‌های جدید را (هر لینک در یک خط) ارسال کنید.\nبا این کار، لینک‌های قبلی کاملاً پاک می‌شوند.')
             return
 
         if data.startswith('supportreply:'):
@@ -902,6 +939,20 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             audit(u.id, 'coupon_created', code, f'{typ} {value}')
             await msg.reply_text(f'کد تخفیف {code} با موفقیت ایجاد شد.', reply_markup=main_keyboard())
             await log_event(context, f'🎟 کد تخفیف {code} توسط مدیر {u.id} ساخته شد.')
+            context.user_data.clear(); return
+
+        if flow == 'edit_links_text':
+            if not is_super(u.id): return
+            pid = context.user_data.get('edit_links_pid')
+            links = [line.strip() for line in text.split('\n') if line.strip()]
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("DELETE FROM product_links WHERE product_id=%s", (pid,))
+                    for link in links:
+                        cur.execute("INSERT INTO product_links(product_id, link) VALUES(%s, %s)", (pid, link))
+            audit(u.id, 'links_updated', str(pid), f'{len(links)} links')
+            await msg.reply_text(f'✅ تعداد {len(links)} لینک با موفقیت برای این محصول ثبت شد.', reply_markup=main_keyboard())
+            await log_event(context, f'🔗 لینک‌های محصول {pid} توسط مدیر {u.id} تغییر کرد.')
             context.user_data.clear(); return
 
         if flow == 'support_reply_target' and is_admin(u.id):
