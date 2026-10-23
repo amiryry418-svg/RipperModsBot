@@ -1,6 +1,6 @@
 """RipperMods Persian Telegram shop. PostgreSQL-backed, deployable on Render."""
 from __future__ import annotations
-import os, logging, threading, time, asyncio
+import os, logging, threading, time, asyncio, io
 from contextlib import contextmanager
 from decimal import Decimal, InvalidOperation
 from typing import Optional
@@ -8,7 +8,7 @@ from typing import Optional
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from flask import Flask, jsonify
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, InputFile
 from telegram.error import TelegramError
 from telegram.ext import (Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters)
 
@@ -348,36 +348,40 @@ async def deliver(context, uid, order_id, product_name):
 
     with db() as conn:
         with conn.cursor() as cur:
-                cur.execute("UPDATE orders SET status='delivered',delivery_sent=true,updated_at=now() WHERE id=%s AND status IN ('approved', 'delivered') AND delivery_sent=false RETURNING id", (order_id,))
-    row = cur.fetchone()
-if not row:
-    return
+            cur.execute("UPDATE orders SET status='delivered',delivery_sent=true,updated_at=now() WHERE id=%s AND status IN ('approved', 'delivered') AND delivery_sent=false RETURNING id", (order_id,))
+            row = cur.fetchone()
+    if not row:
+        log.warning(f"Order {order_id} not delivered: row not found or already sent.")
+        return
 
-    msg_header = f'🎉 محصول شما آماده تحویل است!\nسفارش: #{order_id}\nمحصول: {product_name}\n\n⚠️ توجه: این لینک‌ها فقط تا ۵ روز آینده قابل استفاده هستند.\n\n'
+    msg_header = f'🎉 محصول شما آماده تحویل است!\nسفارش: #{order_id}\nمحصول: {product_name}\n\n'
+    msg_header += '⚠️ توجه: لینک‌های دانلود به صورت یک فایل متنی در پیام بعدی برای شما ارسال می‌شود.\n\n'
     if password:
-        msg_header += f'🔑 رمز فایل: {password}\n\n'
-
-    for chunk in [DOWNLOAD_LINKS[i:i+5] for i in range(0, len(DOWNLOAD_LINKS), 5)]:
-        chunk_text = "\n".join(chunk)
-        if len(msg_header) + len(chunk_text) < 4000:
-            try:
-                await context.bot.send_message(uid, msg_header + chunk_text, disable_web_page_preview=True)
-            except TelegramError:
-                pass
-            msg_header = "" 
+        msg_header += f'🔑 رمز فایل: {password}\n'
 
     try:
-        sent = await context.bot.send_message(uid, "✅ تمام لینک‌ها ارسال شد. در صورت نیاز به لینک‌های بیشتر به پشتیبانی مراجعه کنید.")
-        if DELETE_DELIVERY:
-            async def delete_later():
-                await asyncio.sleep(30)
-                try:
-                    await context.bot.delete_message(uid, sent.message_id)
-                except TelegramError:
-                    pass
-            asyncio.create_task(delete_later())
-    except TelegramError:
-        pass
+        await context.bot.send_message(uid, msg_header)
+    except TelegramError as e:
+        log.error(f"Failed to send header to {uid}: {e}")
+        return
+
+    # --- ساخت فایل متنی برای لینک‌ها ---
+    file_content = "\n".join(DOWNLOAD_LINKS)
+    file_io = io.BytesIO(file_content.encode('utf-8'))
+    file_io.name = f"RipperMods_Links.txt"
+
+    try:
+        await context.bot.send_document(
+            uid, 
+            document=InputFile(file_io, filename=f"RipperMods_Links.txt"), 
+            caption="✅ این فایل حاوی تمام لینک‌های دانلود شماست."
+        )
+    except TelegramError as e:
+        log.error(f"Failed to send file to {uid}: {e}")
+        try:
+            await context.bot.send_message(uid, "❌ متأسفانه ارسال فایل لینک‌ها با خطا مواجه شد. لطفاً به پشتیبانی پیام دهید.")
+        except TelegramError:
+            pass
 
 async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -405,7 +409,7 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         await q.message.reply_text('محصول یافت نشد یا غیرفعال است.')
                         return
                     
-                    cur.execute("SELECT 1 FROM orders WHERE user_id=%s AND product_id=%s AND status IN ('pending','approved','delivered')", (uid, pid))
+                    cur.execute("SELECT 1 FROM orders WHERE user_id=%s AND product_id=%s AND status IN ('approved','delivered')", (uid, pid))
                     if cur.fetchone():
                         await q.message.reply_text('⛔ شما قبلاً این محصول را سفارش داده‌اید و امکان سفارش مجدد وجود ندارد.')
                         return
@@ -621,7 +625,7 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             return
                         cur.execute('UPDATE users SET wallet=wallet-%s WHERE telegram_id=%s', (REDOWNLOAD_PRICE, uid))
                         order = 'RE-' + str(int(time.time()))[-6:]
-                        cur.execute("INSERT INTO orders(user_id,product_id,product_name,amount,payment_method,status,wallet_debited,delivery_sent) VALUES(%s,(SELECT id FROM products WHERE name='سوپر پک'),'دریافت مجدد لینک',%s,'wallet','delivered',true,true) RETURNING id", (uid, REDOWNLOAD_PRICE))
+                        cur.execute("INSERT INTO orders(user_id,product_id,product_name,amount,payment_method,status,wallet_debited,delivery_sent) VALUES(%s,(SELECT id FROM products WHERE name='سوپر پک'),'دریافت مجدد لینک',%s,'wallet','approved',true,false) RETURNING id", (uid, REDOWNLOAD_PRICE))
                         new_oid = cur.fetchone()['id']
                         cur.execute("INSERT INTO wallet_transactions(user_id,amount,kind,reference,reason,idempotency_key) VALUES(%s,%s,'purchase',%s,%s,%s)", (uid, -REDOWNLOAD_PRICE, str(new_oid), 'دریافت مجدد لینک', f'redl-{new_oid}'))
                 await q.message.reply_text('پرداخت انجام شد. در حال ارسال لینک‌ها...')
