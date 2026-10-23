@@ -32,7 +32,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("rippermods-bot")
 
-TOKEN = os.getenv("BOT_TOKEN", "").strip()
+TOKEN = "8789507883:AAH1O5TTOoBI46e77lj958dwU8BR1vC8hN4"
 ADMIN_MAIN_ID = int(os.getenv("ADMIN_MAIN_ID", "1808953401"))
 ADMIN_PORT_ID = int(os.getenv("ADMIN_PORT_ID", "1891282471"))
 CHANNEL_USERNAME = os.getenv("CHANNEL_USERNAME", "@Rippermods")
