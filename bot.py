@@ -306,7 +306,8 @@ async def deliver(context, uid, order_id, product_name):
             asyncio.create_task(delete_later())
     except TelegramError:
         pass
-        async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
     uid = q.from_user.id
