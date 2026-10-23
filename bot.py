@@ -114,7 +114,8 @@ def init_db():
             with conn.cursor() as cur:
                 for sql in schema:
                     cur.execute(sql)
-                cur.execute("DELETE FROM products WHERE name='Super Pack'")
+                cur.execute("UPDATE products SET active=false WHERE name='Super Pack'")
+                cur.execute("UPDATE products SET price=799, name='سوپر پک', description='بسته ویژه RipperMods' WHERE name='سوپر پک'")
                 cur.execute("INSERT INTO products(name,description,price) SELECT %s,%s,%s WHERE NOT EXISTS (SELECT 1 FROM products WHERE name=%s)", ('سوپر پک', 'بسته ویژه RipperMods', Decimal('799'), 'سوپر پک'))
         _db_initialized = True
 
