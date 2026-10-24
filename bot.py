@@ -284,8 +284,29 @@ async def wallet(update, context):
             row = cur.fetchone()
             cur.execute('SELECT amount,kind,reason,created_at FROM wallet_transactions WHERE user_id=%s ORDER BY id DESC LIMIT 10', (uid,))
             tx = cur.fetchall()
-    lines = [f"موجودی شما: {int(row['wallet']):,} تومان", '', 'آخرین تراکنش‌ها:']
-    lines += [f"{r['created_at']:%Y-%m-%d} | {r['kind']} | {int(r['amount']):,} تومان {('- ' + r['reason']) if r['reason'] else ''}" for r in tx] or ['هنوز تراکنشی ثبت نشده است.']
+    
+    kind_map = {
+        'purchase': '🛒 خرید',
+        'topup': '💰 شارژ',
+        'admin_adjustment': '⚙️ تنظیم موجودی'
+    }
+    
+    lines = [f"💳 موجودی شما: {int(row['wallet']):,} تومان", '', '📜 آخرین تراکنش‌ها:']
+    
+    if not tx:
+        lines.append('هنوز تراکنشی ثبت نشده است.')
+    else:
+        for r in tx:
+            k_fa = kind_map.get(r['kind'], r['kind'])
+            reason_txt = f" ({r['reason']})" if r['reason'] else ""
+            amt = int(r['amount'])
+            sign = "🟢 +" if amt > 0 else "🔴 "
+            amt_str = f"{sign}{abs(amt):,}"
+            
+            lines.append(f"┌ {r['created_at']:%Y-%m-%d %H:%M}")
+            lines.append(f"├ {k_fa}{reason_txt}")
+            lines.append(f"└ {amt_str} تومان")
+            
     kb = InlineKeyboardMarkup([[InlineKeyboardButton('➕ درخواست شارژ', callback_data='wallet:topup')]])
     await update.effective_message.reply_text('\n'.join(lines), reply_markup=kb)
 
@@ -316,11 +337,19 @@ async def orders_for_user(update, context):
 
 async def begin_topup(update, context):
     context.user_data['flow'] = 'topup_amount'
-    await update.effective_message.reply_text('مبلغ شارژ را به تومان و به‌صورت عدد مثبت وارد کنید:', reply_markup=back_kb())
+    await update.effective_message.reply_text(
+        'لطفاً مبلغ شارژ را به تومان و فقط به صورت عدد وارد کنید.\n'
+        'مثال: 799000', 
+        reply_markup=back_kb()
+    )
 
 async def begin_topup_from_callback(q, context):
     context.user_data['flow'] = 'topup_amount'
-    await q.message.reply_text('مبلغ شارژ را به تومان وارد کنید:', reply_markup=back_kb())
+    await q.message.reply_text(
+        'لطفاً مبلغ شارژ را به تومان و فقط به صورت عدد وارد کنید.\n'
+        'مثال: 799000', 
+        reply_markup=back_kb()
+    )
 
 async def review_topup(q, context, rid, decision, admin_id):
     with db() as conn:
