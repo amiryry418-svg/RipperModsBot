@@ -4,6 +4,7 @@ import os, logging, threading, time, asyncio, io
 from contextlib import contextmanager
 from decimal import Decimal, InvalidOperation
 from typing import Optional
+from datetime import datetime, timezone, timedelta
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -71,6 +72,7 @@ INSTALL_TUTORIAL = """
 """
 
 REDOWNLOAD_PRICE = Decimal('150')
+EXPIRE_HOURS = 24
 
 _db_initialized = False
 _db_lock = threading.Lock()
@@ -313,6 +315,9 @@ async def wallet(update, context):
 async def orders_for_user(update, context):
     with db() as conn:
         with conn.cursor() as cur:
+            # به‌روزرسانی خودکار وضعیت سفارش‌های pending که بیش از ۲۴ ساعت از ایجادشان گذشته باشد
+            cur.execute("UPDATE orders SET status='cancelled', updated_at=now() WHERE status='pending' AND created_at < now() - interval '24 hours'")
+            
             cur.execute("SELECT id,product_name,amount,payment_method,status,created_at FROM orders WHERE user_id=%s AND product_name != 'دریافت مجدد لینک' ORDER BY id DESC LIMIT 20", (update.effective_user.id,))
             rows = cur.fetchall()
     if not rows:
@@ -324,7 +329,7 @@ async def orders_for_user(update, context):
         'approved': '✅ تایید شده',
         'delivered': '📦 موفق (تحویل داده شد)',
         'rejected': '❌ رد شده',
-        'cancelled': '🚫 لغو شده'
+        'cancelled': '🚫 لغو شده (مهلت پرداخت تمام شد)'
     }
     
     lines = []
@@ -537,10 +542,23 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     with conn.cursor() as cur:
                         cur.execute("INSERT INTO orders(user_id,product_id,product_name,amount,payment_method,status,coupon_id) VALUES(%s,%s,%s,%s,'card','pending',%s) RETURNING id", (uid, pid, p['name'], amount, context.user_data.get('coupon_id')))
                         order = cur.fetchone()['id']
-                card = os.getenv('CARD_NUMBER', 'تنظیم نشده').strip() or 'تنظیم نشده'
-                holder = os.getenv('CARD_HOLDER', 'تنظیم نشده').strip() or 'تنظیم نشده'
-                await q.message.reply_text(f'سفارش #{order} ثبت شد.\nمبلغ: {int(amount):,} تومان\nکارت: {card}\nبه نام: {holder}\nپس از پرداخت، تصویر رسید را ارسال کنید.', reply_markup=back_kb())
-                context.user_data.update(flow='order_receipt', order_id=order)
+                card = os.getenv('CARD_NUMBER', '5022291544593963').strip() or 'تنظیم نشده'
+                holder = os.getenv('CARD_HOLDER', 'ریبعی نژاد').strip() or 'تنظیم نشده'
+                msg = (
+                    f"برای افزایش موجودی، مبلغ {int(amount):,} تومان را به شماره‌ی حساب زیر واریز کنید 👇\n\n"
+                    f"===================\n"
+                    f"{card}\n"
+                    f"**{holder}**\n"
+                    f"===================\n\n"
+                    f"❌ این تراکنش به مدت ۲۴ ساعت اعتبار دارد و پس از آن امکان پرداخت این تراکنش وجود نخواهد داشت.\n\n"
+                    f"‼️ مبلغ باید همان مبلغی باشد که در بالا ذکر شده واریز نمایید.\n"
+                    f"‼️ امکان برداشت وجه از کیف پول نیست.\n"
+                    f"‼️ مسئولیت واریز اشتباهی با شماست.\n\n"
+                    f"👆 بعد از پرداخت دکمه پرداخت کردم را زده سپس تصویر رسید را ارسال نمایید.\n\n"
+                    f"💰 بعد از تایید پرداختتون توسط ادمین کیف پول شما شارژ خواهد شد."
+                )
+                kb = InlineKeyboardMarkup([[InlineKeyboardButton('✅ پرداخت کردم | ارسال رسید', callback_data=f'rcpt:{order}:order')]])
+                await q.message.reply_text(msg, reply_markup=kb, parse_mode='Markdown')
                 user_info = f"{q.from_user.first_name} (@{q.from_user.username or 'بدون‌یوزرنیم'}) - آیدی: {uid}"
                 await log_event(context, f'🛒 سفارش جدید کارت‌به‌کارت\nسفارش #{order}\nکاربر {user_info}\nمحصول {p["name"]}\nمبلغ {int(amount):,}')
             return
@@ -562,6 +580,13 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await review_topup(q, context, rid, decision, uid)
             else:
                 await review_order(q, context, rid, decision, uid)
+            return
+
+        if data.startswith('rcpt:'):
+            _, rid, kind = data.split(':')
+            context.user_data['flow'] = 'order_receipt' if kind == 'order' else 'topup_receipt'
+            context.user_data['order_id'] = int(rid)
+            await q.message.reply_text('لطفاً تصویر رسید پرداخت خود را همینجا ارسال کنید:')
             return
 
         if data.startswith('adm:'):
@@ -731,9 +756,23 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     with conn.cursor() as cur:
                         cur.execute("INSERT INTO orders(user_id,product_id,product_name,amount,payment_method,status,coupon_id) VALUES(%s,(SELECT id FROM products WHERE name='سوپر پک'),'دریافت مجدد لینک',%s,'card','pending',NULL) RETURNING id", (uid, REDOWNLOAD_PRICE))
                         order = cur.fetchone()['id']
-                card = os.getenv('CARD_NUMBER', 'تنظیم نشده').strip() or 'تنظیم نشده'
-                holder = os.getenv('CARD_HOLDER', 'تنظیم نشده').strip() or 'تنظیم نشده'
-                await q.message.reply_text(f'درخواست دریافت مجدد لینک #{order} ثبت شد.\nمبلغ: {int(REDOWNLOAD_PRICE):,} تومان\nکارت: {card}\nبه نام: {holder}\nپس از پرداخت، تصویر رسید را ارسال کنید.', reply_markup=back_kb())
+                card = os.getenv('CARD_NUMBER', '5022291544593963').strip() or 'تنظیم نشده'
+                holder = os.getenv('CARD_HOLDER', 'ریبعی نژاد').strip() or 'تنظیم نشده'
+                msg = (
+                    f"برای دریافت مجدد لینک، مبلغ {int(REDOWNLOAD_PRICE):,} تومان را به شماره‌ی حساب زیر واریز کنید 👇\n\n"
+                    f"===================\n"
+                    f"{card}\n"
+                    f"**{holder}**\n"
+                    f"===================\n\n"
+                    f"❌ این تراکنش به مدت ۲۴ ساعت اعتبار دارد و پس از آن امکان پرداخت این تراکنش وجود نخواهد داشت.\n\n"
+                    f"‼️ مبلغ باید همان مبلغی باشد که در بالا ذکر شده واریز نمایید.\n"
+                    f"‼️ امکان برداشت وجه از کیف پول نیست.\n"
+                    f"‼️ مسئولیت واریز اشتباهی با شماست.\n\n"
+                    f"👆 بعد از پرداخت دکمه پرداخت کردم را زده سپس تصویر رسید را ارسال نمایید.\n\n"
+                    f"💰 بعد از تایید پرداختتون توسط ادمین لینک‌ها برای شما ارسال می‌شود."
+                )
+                kb = InlineKeyboardMarkup([[InlineKeyboardButton('✅ پرداخت کردم | ارسال رسید', callback_data=f'rcpt:{order}:order')]])
+                await q.message.reply_text(msg, reply_markup=kb, parse_mode='Markdown')
                 context.user_data.update(flow='order_receipt', order_id=order)
                 user_info = f"{q.from_user.first_name} (@{q.from_user.username or 'بدون‌یوزرنیم'}) - آیدی: {uid}"
                 await log_event(context, f'🔄 درخواست دریافت مجدد لینک (کارت‌به‌کارت)\nسفارش #{order}\nکاربر: {user_info}\nمبلغ: {int(REDOWNLOAD_PRICE):,}')
@@ -800,8 +839,27 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if amount <= 0 or amount > Decimal('1000000000'):
                 raise InvalidOperation()
             context.user_data['topup_amount'] = amount
-            context.user_data['flow'] = 'topup_receipt'
-            await msg.reply_text(f'مبلغ {int(amount):,} تومان ثبت شد. حالا تصویر رسید را ارسال کنید.'); return
+            context.user_data['flow'] = 'topup_amount_confirm'
+            
+            card = os.getenv('CARD_NUMBER', '5022291544593963').strip() or 'تنظیم نشده'
+            holder = os.getenv('CARD_HOLDER', 'ریبعی نژاد').strip() or 'تنظیم نشده'
+            msg_text = (
+                f"برای افزایش موجودی، مبلغ {int(amount):,} تومان را به شماره‌ی حساب زیر واریز کنید 👇\n\n"
+                f"===================\n"
+                f"{card}\n"
+                f"**{holder}**\n"
+                f"===================\n\n"
+                f"❌ این تراکنش به مدت ۲۴ ساعت اعتبار دارد و پس از آن امکان پرداخت این تراکنش وجود نخواهد داشت.\n\n"
+                f"‼️ مبلغ باید همان مبلغی باشد که در بالا ذکر شده واریز نمایید.\n"
+                f"‼️ امکان برداشت وجه از کیف پول نیست.\n"
+                f"‼️ مسئولیت واریز اشتباهی با شماست.\n\n"
+                f"👆 بعد از پرداخت دکمه پرداخت کردم را زده سپس تصویر رسید را ارسال نمایید.\n\n"
+                f"💰 بعد از تایید پرداختتون توسط ادمین کیف پول شما شارژ خواهد شد."
+            )
+            kb = InlineKeyboardMarkup([[InlineKeyboardButton('✅ پرداخت کردم | ارسال رسید', callback_data='rcpt:0:topup')]])
+            await msg.reply_text(msg_text, reply_markup=kb, parse_mode='Markdown')
+            return
+            
         if flow == 'topup_receipt' and msg.photo:
             amount = context.user_data.pop('topup_amount')
             file_id = msg.photo[-1].file_id
