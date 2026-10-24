@@ -56,6 +56,8 @@ PORT_ADMIN = _optional_int_env('PORT_ADMIN')
 ADMIN3 = _optional_int_env('ADMIN3')
 DELETE_DELIVERY = os.getenv('DELETE_DELIVERY_AFTER_30_SECONDS', 'true').lower() in ('1', 'true', 'yes')
 
+BASE_LINK = "https://dl2.megadl.click/PS4-Hacked/GTAV/CUSA00419/BASE/"
+
 INSTALL_TUTORIAL = """
 🎮 **آموزش نصب پک GTA V (نسخه PS4/PS5)**
 
@@ -142,7 +144,6 @@ def init_db():
                 cur.execute("SELECT count(*) c FROM product_links WHERE product_id=%s", (prod_id,))
                 if cur.fetchone()['c'] == 0:
                     initial_links = [
-                        "https://dl2.megadl.click/PS4-Hacked/GTAV/CUSA00419/BASE/",
                         "https://s17.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part25.rar",
                         "https://s17.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part24.rar",
                         "https://s17.uupload.ir/files/rippermodsgtavv100/gtaV%20latest/UP1004-CUSA00419_00-GTAVDIGITALDOWNL-A0153-V0100-maybefinal.part23.rar",
@@ -204,7 +205,8 @@ def main_keyboard():
         [KeyboardButton('📦 سفارش‌های من'), KeyboardButton('📖 آموزش نصب')],
         [KeyboardButton('🎟 کد تخفیف'), KeyboardButton('💬 پشتیبانی')],
         [KeyboardButton('🎮 درخواست پورت'), KeyboardButton('📦 درخواست پک اختصاصی')],
-        [KeyboardButton('🔄 دریافت مجدد لینک'), KeyboardButton('🔄 اتصال مجدد / شروع مجدد')]
+        [KeyboardButton('🆓 دریافت بیس رایگان'), KeyboardButton('🔄 دریافت مجدد لینک')],
+        [KeyboardButton('🔄 اتصال مجدد / شروع مجدد')]
     ], resize_keyboard=True)
 
 def back_kb():
@@ -718,6 +720,9 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text == '📦 درخواست پک اختصاصی':
         context.user_data['flow'] = 'custom_pack_game'
         await msg.reply_text('نام بازی/نرم‌افزار مورد نظر خود را وارد کنید:', reply_markup=back_kb()); return
+    if text == '🆓 دریافت بیس رایگان':
+        await msg.reply_text(f'🎮 **لینک دانلود فایل بیس رایگان:**\n\n{BASE_LINK}\n\n⚠️ لطفاً توجه داشته باشید که برای استفاده از مودها، حتماً باید نسخه بازی شما با این نسخه بیس یکی باشد.', reply_markup=main_keyboard(), disable_web_page_preview=True)
+        return
     if text == '🔄 دریافت مجدد لینک':
         with db() as conn:
             with conn.cursor() as cur:
@@ -951,7 +956,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     for link in links:
                         cur.execute("INSERT INTO product_links(product_id, link) VALUES(%s, %s)", (pid, link))
             audit(u.id, 'links_updated', str(pid), f'{len(links)} links')
-            await msg.reply_text(f'✅ تعداد {len(links)} لینک با موفقیت برای این محصول ثبت شد.', reply_markup=main_keyboard())
+            await msg.reply_text(f'✅ تعداد {len(links)} لینک با موفقیت برای این محصول ثبت شد.\n\n(لینک بیس به صورت پیش‌فرض و رایگان برای همه ارسال می‌شود و نیازی به قرار دادن آن در اینجا نیست.)', reply_markup=main_keyboard())
             await log_event(context, f'🔗 لینک‌های محصول {pid} توسط مدیر {u.id} تغییر کرد.')
             context.user_data.clear(); return
 
