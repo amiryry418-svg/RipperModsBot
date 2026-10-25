@@ -235,12 +235,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute('INSERT INTO users(telegram_id,username,first_name) VALUES(%s,%s,%s) ON CONFLICT(telegram_id) DO UPDATE SET username=EXCLUDED.username,first_name=EXCLUDED.first_name,last_seen=now() RETURNING phone', (u.id, u.username, u.first_name))
+            cur.execute('INSERT INTO users(telegram_id,username,first_name) VALUES(%s,%s,%s) ON CONFLICT(telegram_id) DO UPDATE SET username=EXCLUDED.username,first_name=EXCLUDED.first_name,last_seen=now() RETURNING phone, reg_name', (u.id, u.username, u.first_name))
             row = cur.fetchone()
     
     context.user_data.clear()
     
-    if not row or not row['phone']:
+    if not row or not row['phone'] or not row['reg_name']:
         context.user_data['flow'] = 'reg_name'
         await update.effective_message.reply_text(
             'سلام! به فروشگاه RipperMods خوش آمدید 🌟\n'
@@ -278,19 +278,38 @@ async def show_product_details(update, context, p_name):
         await update.effective_message.reply_text('محصول یافت نشد یا غیرفعال است.', reply_markup=main_keyboard())
         return
 
-    text = f"🛍 {p['name']}\n{p['description']}\n💵 قیمت: {int(p['price']):,} تومان"
+    base_price = Decimal(p['price'])
+    final_price = base_price
     
+    coupon_code = context.user_data.get('coupon_code')
+    if coupon_code:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT * FROM coupons WHERE code=%s AND active=true AND (expires_at IS NULL OR expires_at>now())", (coupon_code.upper(),))
+                cp = cur.fetchone()
+        if cp and cp['discount_type'] == 'percent':
+            discount = base_price * (cp['value'] / Decimal(100))
+            final_price = base_price - discount
+            final_price = max(Decimal('0'), final_price).quantize(Decimal('0.01'))
+
+    text = f"🛍 {p['name']}\n{p['description']}\n"
+    if coupon_code and final_price < base_price:
+        text += f"❌ قیمت اصلی: {int(base_price):,} تومان\n"
+        text += f"✅ قیمت با تخفیف ({coupon_code}): {int(final_price):,} تومان"
+    else:
+        text += f"💵 قیمت: {int(final_price):,} تومان"
+        
     if p['name'] == 'پک ایرانیزه':
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton('خرید با کیف پول', callback_data=f"buyw:{p['id']}"), InlineKeyboardButton('پرداخت کارت‌به‌کارت', callback_data=f"buyc:{p['id']}")],
             [InlineKeyboardButton('🚀 ارتقا از V1', callback_data=f"upgrade:{p['id']}")],
-            [InlineKeyboardButton('🎟 وارد کردن کد تخفیف', callback_data="wallet:coupon")]
+            [InlineKeyboardButton('🎟 وارد کردن کد تخفیف', callback_data=f"appcpn:{p['id']}")]
         ])
         photo = 'https://s31.uupload.ir/files/rippermodsgtavv100/Amir/4/IMG_20261021_205807_285.jpg'
     else:
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton('خرید با کیف پول', callback_data=f"buyw:{p['id']}"), InlineKeyboardButton('پرداخت کارت‌به‌کارت', callback_data=f"buyc:{p['id']}")],
-            [InlineKeyboardButton('🎟 وارد کردن کد تخفیف', callback_data="wallet:coupon")]
+            [InlineKeyboardButton('🎟 وارد کردن کد تخفیف', callback_data=f"appcpn:{p['id']}")]
         ])
         photo = 'https://s50.uupload.ir/files/rippermodsgtavv100/Amir/IMG_20261021_205811_651.jpg' if p['name'] == 'سوپر پک' else ''
         
@@ -403,8 +422,7 @@ async def review_topup(q, context, rid, decision, admin_id):
             r = cur.fetchone()
             if not r or r['status'] != 'pending':
                 await q.message.reply_text('این درخواست قبلاً بررسی شده یا وجود ندارد.')
-                return
-            new = 'approved' if decision == 'approve' else 'rejected'
+                return            new = 'approved' if decision == 'approve' else 'rejected'
             cur.execute("UPDATE topups SET status=%s,reviewed_by=%s,reviewed_at=now() WHERE id=%s AND status='pending'", (new, admin_id, rid))
             if cur.rowcount != 1:
                 await q.message.reply_text('این درخواست قبلاً بررسی شده است.')
@@ -513,10 +531,16 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if data == 'shop:iranian_pack':
             await show_product_details(update, context, 'پک ایرانیزه')
             return
-
-        if data == 'wallet:coupon':
+            
+        if data.startswith('appcpn:'):
+            pid = int(data.split(':')[1])
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute('SELECT name FROM products WHERE id=%s', (pid,))
+                    p = cur.fetchone()
             context.user_data['flow'] = 'coupon_apply'
-            await q.message.reply_text('کد تخفیف را وارد کنید. سپس محصول را از فروشگاه انتخاب کنید.', reply_markup=back_kb())
+            context.user_data['coupon_target_pid'] = pid
+            await q.message.reply_text('لطفاً کد تخفیف خود را وارد کنید:', reply_markup=back_kb())
             return
 
         if data.startswith('upgrade:'):
@@ -1082,7 +1106,17 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if used:
                 await msg.reply_text('این کد را قبلاً استفاده کرده‌اید.'); return
             context.user_data.update(coupon_code=code, flow=None)
-            await msg.reply_text('کد ذخیره شد؛ اکنون از فروشگاه محصول را انتخاب کنید.', reply_markup=main_keyboard()); return
+            target_pid = context.user_data.pop('coupon_target_pid', None)
+            if target_pid:
+                with db() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute('SELECT name FROM products WHERE id=%s', (target_pid,))
+                        pr = cur.fetchone()
+                await msg.reply_text('✅ کد تخفیف با موفقیت اعمال شد.', reply_markup=main_keyboard())
+                await show_product_details(update, context, pr['name'])
+            else:
+                await msg.reply_text('✅ کد ذخیره شد. حالا روی محصولی که می‌خواید تخفیف بگیرید کلیک کنید.', reply_markup=main_keyboard())
+            return
         if flow == 'port_game':
             context.user_data.update(port_game=text, flow='port_platform')
             await msg.reply_text('پلتفرم موردنظر را وارد کنید (مثلاً PC، Android، کنسول):'); return
