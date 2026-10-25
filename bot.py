@@ -422,7 +422,8 @@ async def review_topup(q, context, rid, decision, admin_id):
             r = cur.fetchone()
             if not r or r['status'] != 'pending':
                 await q.message.reply_text('این درخواست قبلاً بررسی شده یا وجود ندارد.')
-                return            new = 'approved' if decision == 'approve' else 'rejected'
+                return
+                new = 'approved' if decision == 'approve' else 'rejected'
             cur.execute("UPDATE topups SET status=%s,reviewed_by=%s,reviewed_at=now() WHERE id=%s AND status='pending'", (new, admin_id, rid))
             if cur.rowcount != 1:
                 await q.message.reply_text('این درخواست قبلاً بررسی شده است.')
