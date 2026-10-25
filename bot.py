@@ -109,9 +109,8 @@ def init_db():
         if _db_initialized:
             return
         schema = [
-            """CREATE TABLE IF NOT EXISTS users (telegram_id BIGINT PRIMARY KEY, username TEXT, first_name TEXT, wallet NUMERIC(14,2) NOT NULL DEFAULT 0 CHECK(wallet >= 0), created_at TIMESTAMPTZ NOT NULL DEFAULT now(), last_seen TIMESTAMPTZ NOT NULL DEFAULT now(), reg_first_name TEXT, reg_last_name TEXT, phone TEXT)""",
-            """ALTER TABLE users ADD COLUMN IF NOT EXISTS reg_first_name TEXT""",
-            """ALTER TABLE users ADD COLUMN IF NOT EXISTS reg_last_name TEXT""",
+            """CREATE TABLE IF NOT EXISTS users (telegram_id BIGINT PRIMARY KEY, username TEXT, first_name TEXT, wallet NUMERIC(14,2) NOT NULL DEFAULT 0 CHECK(wallet >= 0), created_at TIMESTAMPTZ NOT NULL DEFAULT now(), last_seen TIMESTAMPTZ NOT NULL DEFAULT now(), reg_name TEXT, phone TEXT)""",
+            """ALTER TABLE users ADD COLUMN IF NOT EXISTS reg_name TEXT""",
             """ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT""",
             """CREATE TABLE IF NOT EXISTS products (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', price NUMERIC(14,2) NOT NULL CHECK(price >= 0), active BOOLEAN NOT NULL DEFAULT true, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), upgrade_price NUMERIC(14,2) DEFAULT 0)""",
             """ALTER TABLE products ADD COLUMN IF NOT EXISTS upgrade_price NUMERIC(14,2) DEFAULT 0""",
@@ -137,12 +136,16 @@ def init_db():
             with conn.cursor() as cur:
                 for sql in schema:
                     cur.execute(sql)
+                
                 cur.execute("UPDATE products SET active=false WHERE name='Super Pack'")
-                cur.execute("UPDATE products SET price=799000, name='سوپر پک', description='بسته ویژه RipperMods', active=true WHERE name='سوپر پک'")
+                
+                cur.execute("INSERT INTO products(name,description,price,active) VALUES('سوپر پک', 'بسته ویژه RipperMods', 799000, true) ON CONFLICT DO NOTHING")
+                cur.execute("UPDATE products SET price=799000, description='بسته ویژه RipperMods', active=true WHERE name='سوپر پک'")
+                
+                cur.execute("INSERT INTO products(name,description,price,active,upgrade_price) VALUES('پک ایرانیزه', 'نسخه ایرانیزه شده GTA V (V2)', 799000, true, 350000) ON CONFLICT DO NOTHING")
+                cur.execute("UPDATE products SET price=799000, description='نسخه ایرانیزه شده GTA V (V2)', active=true, upgrade_price=350000 WHERE name='پک ایرانیزه'")
+                
                 cur.execute("UPDATE orders SET product_name='سوپر پک' WHERE product_name='Super Pack'")
-                cur.execute("INSERT INTO products(name,description,price,active) SELECT %s,%s,%s,true WHERE NOT EXISTS (SELECT 1 FROM products WHERE name=%s)", ('سوپر پک', 'بسته ویژه RipperMods', Decimal('799000'), 'سوپر پک'))
-                cur.execute("INSERT INTO products(name,description,price,active,upgrade_price) SELECT %s,%s,%s,true,%s WHERE NOT EXISTS (SELECT 1 FROM products WHERE name=%s)", ('پک ایرانیزه', 'نسخه ایرانیزه شده GTA V', Decimal('799000'), Decimal('350000'), 'پک ایرانیزه'))
-                cur.execute("UPDATE products SET upgrade_price=350000 WHERE name='پک ایرانیزه'")
                 
                 cur.execute("SELECT id FROM products WHERE name='سوپر پک'")
                 prod_id = cur.fetchone()['id']
@@ -207,11 +210,11 @@ def is_super(uid: int) -> bool:
 def main_keyboard():
     return ReplyKeyboardMarkup([
         [KeyboardButton('🛍 فروشگاه'), KeyboardButton('💰 کیف پول')],
-        [KeyboardButton('📦 سفارش‌های من'), KeyboardButton('📖 آموزش نصب')],
-        [KeyboardButton('🎟 کد تخفیف'), KeyboardButton('💬 پشتیبانی')],
+        [KeyboardButton('📦 سفارش‌های من'), KeyboardButton('👤 حساب کاربری')],
+        [KeyboardButton('🎟 کد تخفیف'), KeyboardButton('📖 آموزش نصب')],
         [KeyboardButton('🎮 درخواست پورت'), KeyboardButton('📦 درخواست پک اختصاصی')],
-        [KeyboardButton('🆓 دریافت بیس رایگان'), KeyboardButton('🔄 دریافت مجدد لینک')],
-        [KeyboardButton('🔄 اتصال مجدد / شروع مجدد')]
+        [KeyboardButton('💬 پشتیبانی'), KeyboardButton('🆓 دریافت بیس رایگان')],
+        [KeyboardButton('🔄 دریافت مجدد لینک'), KeyboardButton('🔄 اتصال مجدد / شروع مجدد')]
     ], resize_keyboard=True)
 
 def back_kb():
@@ -238,11 +241,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     
     if not row or not row['phone']:
-        context.user_data['flow'] = 'reg_first_name'
+        context.user_data['flow'] = 'reg_name'
         await update.effective_message.reply_text(
             'سلام! به فروشگاه RipperMods خوش آمدید 🌟\n'
             'برای استفاده از ربات، ابتدا باید ثبت‌نام کنید.\n\n'
-            'لطفاً **نام و نام خانوادگی** خود را وارد کنید (مثلاً: امیر محمدی):',
+            'لطفاً **نام و نام خانوادگی** خود را وارد کنید (مثال: علی رضایی):',
             reply_markup=ReplyKeyboardMarkup([[KeyboardButton('❌ لغو')]], resize_keyboard=True)
         )
         return
@@ -332,6 +335,24 @@ async def wallet(update, context):
             
     kb = InlineKeyboardMarkup([[InlineKeyboardButton('➕ درخواست شارژ', callback_data='wallet:topup')]])
     await update.effective_message.reply_text('\n'.join(lines), reply_markup=kb)
+
+async def account_info(update, context):
+    uid = update.effective_user.id
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT reg_name, phone, wallet FROM users WHERE telegram_id=%s', (uid,))
+            r = cur.fetchone()
+    if not r:
+        await update.effective_message.reply_text('اطلاعات حساب یافت نشد. لطفاً /start را بزنید.', reply_markup=main_keyboard())
+        return
+    text = (
+        f"👤 **اطلاعات حساب کاربری شما**\n\n"
+        f"📝 نام و نام خانوادگی: {r['reg_name']}\n"
+        f"📱 شماره تماس: {r['phone']}\n"
+        f"🆔 آیدی عددی: {uid}\n"
+        f"💳 موجودی کیف پول: {int(r['wallet']):,} تومان"
+    )
+    await update.effective_message.reply_text(text, reply_markup=main_keyboard(), parse_mode='Markdown')
 
 async def orders_for_user(update, context):
     with db() as conn:
@@ -738,7 +759,8 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             await q.message.reply_text(txt, reply_markup=kb)
             elif action == 'coupon':
                 context.user_data['flow'] = 'adm_coupon_code'
-                await q.message.reply_text('مرحله ۱ از ۵:\nلطفاً یک نام (کد) برای تخفیف وارد کنید (مثلاً: OFF20):')
+                context.user_data['adm_coupon_type'] = 'percent'
+                await q.message.reply_text('مرحله ۱ از ۴:\nلطفاً یک نام (کد) برای تخفیف وارد کنید (مثلاً: OFF20):')
             elif action == 'finduser':
                 context.user_data['flow'] = 'finduser'
                 await q.message.reply_text('Telegram ID کاربر را وارد کنید:')
@@ -917,24 +939,19 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     # --- Registration Flow ---
     flow = context.user_data.get('flow')
-    if flow == 'reg_first_name':
-        context.user_data['reg_first_name'] = text
-        context.user_data['flow'] = 'reg_last_name'
-        await msg.reply_text('لطفاً **نام خانوادگی** خود را وارد کنید:')
-        return
-        
-    if flow == 'reg_last_name':
-        context.user_data['reg_last_name'] = text
+    if flow == 'reg_name':
+        context.user_data['reg_name'] = text
         context.user_data['flow'] = 'reg_phone'
-        await msg.reply_text('لطفاً **شماره تماس** خود را وارد کنید (مثلاً: 09123456789):')
+        await msg.reply_text('لطفاً **شماره تماس** خود را وارد کنید (مثال: 09131234352):')
         return
         
     if flow == 'reg_phone':
         phone = text
+        reg_name = context.user_data.get('reg_name')
         with db() as conn:
             with conn.cursor() as cur:
-                cur.execute('UPDATE users SET reg_first_name=%s, reg_last_name=%s, phone=%s WHERE telegram_id=%s', 
-                            (context.user_data['reg_first_name'], context.user_data['reg_last_name'], phone, u.id))
+                cur.execute('UPDATE users SET reg_name=%s, phone=%s WHERE telegram_id=%s', 
+                            (reg_name, phone, u.id))
         context.user_data.clear()
         await msg.reply_text('✅ ثبت‌نام شما با موفقیت انجام شد! حالا می‌توانید از منوی زیر استفاده کنید.', reply_markup=main_keyboard())
         if is_admin(u.id):
@@ -946,6 +963,8 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_shop(update, context); return
     if text == '💰 کیف پول':
         await wallet(update, context); return
+    if text == '👤 حساب کاربری':
+        await account_info(update, context); return
     if text == '📦 سفارش‌های من':
         await orders_for_user(update, context); return
     if text == '📖 آموزش نصب':
@@ -1015,10 +1034,12 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 with conn.cursor() as cur:
                     cur.execute('INSERT INTO topups(user_id,amount,receipt_file_id) VALUES(%s,%s,%s) RETURNING id', (u.id, amount, file_id))
                     rid = cur.fetchone()['id']
+                    cur.execute('SELECT reg_name, phone FROM users WHERE telegram_id=%s', (u.id,))
+                    uinfo = cur.fetchone()
             context.user_data.clear()
             await msg.reply_text(f'درخواست شارژ #{rid} ثبت شد و منتظر بررسی مدیر اصلی است.', reply_markup=main_keyboard())
             kb = InlineKeyboardMarkup([[InlineKeyboardButton('تأیید شارژ', callback_data=f'topup:{rid}:approve'), InlineKeyboardButton('رد شارژ', callback_data=f'topup:{rid}:reject')]])
-            user_info = f"{u.first_name} (@{u.username or 'بدون‌یوزرنیم'}) - آیدی: {u.id}"
+            user_info = f"{uinfo['reg_name']} | آیدی: {u.id} | تلفن: {uinfo['phone']}"
             try:
                 await context.bot.send_photo(SUPER_ADMIN, file_id, caption=f'درخواست شارژ #{rid}\nکاربر: {user_info}\nمبلغ: {int(amount):,} تومان', reply_markup=kb)
             except TelegramError:
@@ -1032,12 +1053,14 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 with conn.cursor() as cur:
                     cur.execute("UPDATE orders SET receipt_file_id=%s WHERE id=%s AND user_id=%s AND status='pending' RETURNING id,amount,product_name", (file_id, rid, u.id))
                     r = cur.fetchone()
+                    cur.execute('SELECT reg_name, phone FROM users WHERE telegram_id=%s', (u.id,))
+                    uinfo = cur.fetchone()
             context.user_data.clear()
             if not r:
                 await msg.reply_text('سفارش در انتظار یافت نشد.'); return
             await msg.reply_text(f'رسید سفارش #{rid} دریافت شد؛ پس از بررسی مدیر اصلی اطلاع می‌دهیم.', reply_markup=main_keyboard())
             kb = InlineKeyboardMarkup([[InlineKeyboardButton('تأیید و تحویل', callback_data=f'orderreview:{rid}:approve'), InlineKeyboardButton('رد سفارش', callback_data=f'orderreview:{rid}:reject')]])
-            user_info = f"{u.first_name} (@{u.username or 'بدون‌یوزرنیم'}) - آیدی: {u.id}"
+            user_info = f"{uinfo['reg_name']} | آیدی: {u.id} | تلفن: {uinfo['phone']}"
             try:
                 await context.bot.send_photo(SUPER_ADMIN, file_id, caption=f"رسید سفارش #{rid}\nکاربر: {user_info}\nمحصول: {r['product_name']}\nمبلغ: {int(r['amount']):,} تومان", reply_markup=kb)
             except TelegramError:
@@ -1098,7 +1121,11 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     rid = cur.fetchone()['id']
             context.user_data.clear()
             await msg.reply_text(f'درخواست پک اختصاصی #{rid} ثبت شد. به زودی با شما تماس می‌گیریم.', reply_markup=main_keyboard())
-            user_info = f"{u.first_name} (@{u.username or 'بدون‌یوزرنیم'}) - آیدی: {u.id}"
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute('SELECT reg_name, phone FROM users WHERE telegram_id=%s', (u.id,))
+                    uinfo = cur.fetchone()
+            user_info = f"{uinfo['reg_name']} | آیدی: {u.id} | تلفن: {uinfo['phone']}"
             try:
                 await context.bot.send_message(SUPER_ADMIN, f'📦 درخواست پک اختصاصی #{rid}\nکاربر: {user_info}\nبازی: {game}\nپلتفرم: {platform}\nتوضیحات: {details}')
             except TelegramError:
@@ -1174,34 +1201,38 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if ' ' in code:
                 await msg.reply_text('کد نباید فاصله داشته باشد. دوباره وارد کنید:'); return
             context.user_data['adm_coupon_code'] = code
-            context.user_data['flow'] = 'adm_coupon_type'
-            kb = InlineKeyboardMarkup([[InlineKeyboardButton('درصدی (%)', callback_data='ctype:percent'), InlineKeyboardButton('مبلغ ثابت (تومان)', callback_data='ctype:fixed')]])
-            await msg.reply_text('مرحله ۲ از ۵:\nنوع تخفیف را انتخاب کنید:', reply_markup=kb); return
+            context.user_data['flow'] = 'adm_coupon_value'
+            await msg.reply_text('مرحله ۲ از ۴:\nلطفاً **درصد تخفیف** را وارد کنید (مثلاً 20 برای ۲۰٪):'); return
         if flow == 'adm_coupon_value':
             if not is_super(u.id): return
-            val = Decimal(text)
-            context.user_data['adm_coupon_value'] = val
-            context.user_data['flow'] = 'adm_coupon_maxuses'
-            await msg.reply_text('مرحله ۴ از ۵:\nحداکثر تعداد استفاده از این کد را وارد کنید (یا 0 برای نامحدود):'); return
+            try:
+                val = Decimal(text)
+                if val <= 0 or val > 100:
+                    await msg.reply_text('درصد تخفیف باید بین ۱ تا ۱۰۰ باشد.'); return
+                context.user_data['adm_coupon_value'] = val
+                context.user_data['flow'] = 'adm_coupon_maxuses'
+                await msg.reply_text('مرحله ۳ از ۴:\nحداکثر تعداد استفاده از این کد را وارد کنید (یا 0 برای نامحدود):')
+            except InvalidOperation:
+                await msg.reply_text('عدد معتبر نیست. لطفاً دوباره وارد کنید.')
+            return
         if flow == 'adm_coupon_maxuses':
             if not is_super(u.id): return
             mu = int(text)
             context.user_data['adm_coupon_maxuses'] = mu if mu > 0 else None
             context.user_data['flow'] = 'adm_coupon_days'
-            await msg.reply_text('مرحله ۵ از ۵:\nاین کد چند روز اعتبار داشته باشد؟ (0 برای بدون انقضا):'); return
+            await msg.reply_text('مرحله ۴ از ۴:\nاین کد چند روز اعتبار داشته باشد؟ (0 برای بدون انقضا):'); return
         if flow == 'adm_coupon_days':
             if not is_super(u.id): return
             days = int(text)
             code = context.user_data['adm_coupon_code']
-            typ = context.user_data['adm_coupon_type']
             value = context.user_data['adm_coupon_value']
             mu = context.user_data['adm_coupon_maxuses']
             d = days if days > 0 else None
             
             with db() as conn:
                 with conn.cursor() as cur:
-                    cur.execute("INSERT INTO coupons(code,discount_type,value,max_uses,expires_at,created_by) VALUES(%s,%s,%s,%s,CASE WHEN %s IS NULL THEN NULL ELSE now()+(%s * interval '1 day') END,%s)", (code, typ, value, mu, d, d, u.id))
-            audit(u.id, 'coupon_created', code, f'{typ} {value}')
+                    cur.execute("INSERT INTO coupons(code,discount_type,value,max_uses,expires_at,created_by) VALUES(%s,'percent',%s,%s,CASE WHEN %s IS NULL THEN NULL ELSE now()+(%s * interval '1 day') END,%s)", (code, value, mu, d, d, u.id))
+            audit(u.id, 'coupon_created', code, f'percent {value}')
             await msg.reply_text(f'کد تخفیف {code} با موفقیت ایجاد شد.', reply_markup=main_keyboard())
             await log_event(context, f'🎟 کد تخفیف {code} توسط مدیر {u.id} ساخته شد.')
             context.user_data.clear(); return
