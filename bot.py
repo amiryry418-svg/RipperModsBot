@@ -4,7 +4,6 @@ import os, logging, threading, time, asyncio, io
 from contextlib import contextmanager
 from decimal import Decimal, InvalidOperation
 from typing import Optional
-from datetime import datetime, timezone, timedelta
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -72,7 +71,6 @@ INSTALL_TUTORIAL = """
 """
 
 REDOWNLOAD_PRICE = Decimal('150')
-EXPIRE_HOURS = 24
 
 _db_initialized = False
 _db_lock = threading.Lock()
@@ -111,9 +109,14 @@ def init_db():
         if _db_initialized:
             return
         schema = [
-            """CREATE TABLE IF NOT EXISTS users (telegram_id BIGINT PRIMARY KEY, username TEXT, first_name TEXT, wallet NUMERIC(14,2) NOT NULL DEFAULT 0 CHECK(wallet >= 0), created_at TIMESTAMPTZ NOT NULL DEFAULT now(), last_seen TIMESTAMPTZ NOT NULL DEFAULT now())""",
-            """CREATE TABLE IF NOT EXISTS products (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', price NUMERIC(14,2) NOT NULL CHECK(price >= 0), active BOOLEAN NOT NULL DEFAULT true, created_at TIMESTAMPTZ NOT NULL DEFAULT now())""",
-            """CREATE TABLE IF NOT EXISTS orders (id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL REFERENCES users(telegram_id), product_id BIGINT REFERENCES products(id), product_name TEXT NOT NULL, amount NUMERIC(14,2) NOT NULL CHECK(amount >= 0), payment_method TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected','delivered','cancelled')), receipt_file_id TEXT, coupon_id BIGINT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), wallet_debited BOOLEAN NOT NULL DEFAULT false, delivery_sent BOOLEAN NOT NULL DEFAULT false)""",
+            """CREATE TABLE IF NOT EXISTS users (telegram_id BIGINT PRIMARY KEY, username TEXT, first_name TEXT, wallet NUMERIC(14,2) NOT NULL DEFAULT 0 CHECK(wallet >= 0), created_at TIMESTAMPTZ NOT NULL DEFAULT now(), last_seen TIMESTAMPTZ NOT NULL DEFAULT now(), reg_first_name TEXT, reg_last_name TEXT, phone TEXT)""",
+            """ALTER TABLE users ADD COLUMN IF NOT EXISTS reg_first_name TEXT""",
+            """ALTER TABLE users ADD COLUMN IF NOT EXISTS reg_last_name TEXT""",
+            """ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT""",
+            """CREATE TABLE IF NOT EXISTS products (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', price NUMERIC(14,2) NOT NULL CHECK(price >= 0), active BOOLEAN NOT NULL DEFAULT true, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), upgrade_price NUMERIC(14,2) DEFAULT 0)""",
+            """ALTER TABLE products ADD COLUMN IF NOT EXISTS upgrade_price NUMERIC(14,2) DEFAULT 0""",
+            """CREATE TABLE IF NOT EXISTS orders (id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL REFERENCES users(telegram_id), product_id BIGINT REFERENCES products(id), product_name TEXT NOT NULL, amount NUMERIC(14,2) NOT NULL CHECK(amount >= 0), payment_method TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected','delivered','cancelled')), receipt_file_id TEXT, coupon_id BIGINT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), wallet_debited BOOLEAN NOT NULL DEFAULT false, delivery_sent BOOLEAN NOT NULL DEFAULT false, is_upgrade BOOLEAN NOT NULL DEFAULT false)""",
+            """ALTER TABLE orders ADD COLUMN IF NOT EXISTS is_upgrade BOOLEAN NOT NULL DEFAULT false""",
             """CREATE TABLE IF NOT EXISTS wallet_transactions (id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL REFERENCES users(telegram_id), amount NUMERIC(14,2) NOT NULL, kind TEXT NOT NULL, reference TEXT, reason TEXT, admin_id BIGINT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), idempotency_key TEXT UNIQUE)""",
             """CREATE TABLE IF NOT EXISTS topups (id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL REFERENCES users(telegram_id), amount NUMERIC(14,2) NOT NULL CHECK(amount > 0), receipt_file_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected')), reviewed_by BIGINT, review_note TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), reviewed_at TIMESTAMPTZ)""",
             """CREATE TABLE IF NOT EXISTS coupons (id BIGSERIAL PRIMARY KEY, code TEXT NOT NULL UNIQUE, discount_type TEXT NOT NULL CHECK(discount_type IN ('percent','fixed')), value NUMERIC(14,2) NOT NULL CHECK(value > 0), max_uses INTEGER, uses INTEGER NOT NULL DEFAULT 0, expires_at TIMESTAMPTZ, active BOOLEAN NOT NULL DEFAULT true, created_by BIGINT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())""",
@@ -138,7 +141,8 @@ def init_db():
                 cur.execute("UPDATE products SET price=799000, name='سوپر پک', description='بسته ویژه RipperMods', active=true WHERE name='سوپر پک'")
                 cur.execute("UPDATE orders SET product_name='سوپر پک' WHERE product_name='Super Pack'")
                 cur.execute("INSERT INTO products(name,description,price,active) SELECT %s,%s,%s,true WHERE NOT EXISTS (SELECT 1 FROM products WHERE name=%s)", ('سوپر پک', 'بسته ویژه RipperMods', Decimal('799000'), 'سوپر پک'))
-                cur.execute("INSERT INTO products(name,description,price,active) SELECT %s,%s,%s,true WHERE NOT EXISTS (SELECT 1 FROM products WHERE name=%s)", ('پک ایرانیزه', 'به زودی...', Decimal('0'), 'پک ایرانیزه'))
+                cur.execute("INSERT INTO products(name,description,price,active,upgrade_price) SELECT %s,%s,%s,true,%s WHERE NOT EXISTS (SELECT 1 FROM products WHERE name=%s)", ('پک ایرانیزه', 'نسخه ایرانیزه شده GTA V', Decimal('799000'), Decimal('350000'), 'پک ایرانیزه'))
+                cur.execute("UPDATE products SET upgrade_price=350000 WHERE name='پک ایرانیزه'")
                 
                 cur.execute("SELECT id FROM products WHERE name='سوپر پک'")
                 prod_id = cur.fetchone()['id']
@@ -220,16 +224,29 @@ def admin_kb():
         [InlineKeyboardButton('🎟 ساخت کد تخفیف', callback_data='adm:coupon'), InlineKeyboardButton('🔎 جست‌وجوی کاربر', callback_data='adm:finduser')],
         [InlineKeyboardButton('💰 تغییر موجودی', callback_data='adm:wallet'), InlineKeyboardButton('⚙️ تنظیمات پرداخت', callback_data='adm:settings')],
         [InlineKeyboardButton('🎮 درخواست‌های پورت', callback_data='adm:ports'), InlineKeyboardButton('💬 پاسخ پشتیبانی', callback_data='adm:support')],
-        [InlineKeyboardButton('🔗 تغییر لینک محصولات', callback_data='adm:edit_links'), InlineKeyboardButton('📣 پیام همگانی', callback_data='adm:broadcast')],
-        [InlineKeyboardButton('📜 سوابق مدیران', callback_data='adm:audit')]
+        [InlineKeyboardButton('💵 تغییر قیمت پک‌ها', callback_data='adm:edit_price'), InlineKeyboardButton('🔗 تغییر لینک محصولات', callback_data='adm:edit_links')],
+        [InlineKeyboardButton('📣 پیام همگانی', callback_data='adm:broadcast'), InlineKeyboardButton('📜 سوابق مدیران', callback_data='adm:audit')]
     ])
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute('INSERT INTO users(telegram_id,username,first_name) VALUES(%s,%s,%s) ON CONFLICT(telegram_id) DO UPDATE SET username=EXCLUDED.username,first_name=EXCLUDED.first_name,last_seen=now()', (u.id, u.username, u.first_name))
+            cur.execute('INSERT INTO users(telegram_id,username,first_name) VALUES(%s,%s,%s) ON CONFLICT(telegram_id) DO UPDATE SET username=EXCLUDED.username,first_name=EXCLUDED.first_name,last_seen=now() RETURNING phone', (u.id, u.username, u.first_name))
+            row = cur.fetchone()
+    
     context.user_data.clear()
+    
+    if not row or not row['phone']:
+        context.user_data['flow'] = 'reg_first_name'
+        await update.effective_message.reply_text(
+            'سلام! به فروشگاه RipperMods خوش آمدید 🌟\n'
+            'برای استفاده از ربات، ابتدا باید ثبت‌نام کنید.\n\n'
+            'لطفاً **نام و نام خانوادگی** خود را وارد کنید (مثلاً: امیر محمدی):',
+            reply_markup=ReplyKeyboardMarkup([[KeyboardButton('❌ لغو')]], resize_keyboard=True)
+        )
+        return
+
     welcome = 'به فروشگاه RipperMods خوش آمدید 🌟\nاز منوی زیر گزینه موردنظر را انتخاب کنید.'
     photo = os.getenv('WELCOME_PHOTO', '').strip()
     try:
@@ -245,7 +262,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def show_shop(update, context):
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton('🛍 سوپر پک', callback_data='shop:super_pack')],
-        [InlineKeyboardButton('📦 پک ایرانیزه (به زودی)', callback_data='shop:iranian_pack')]
+        [InlineKeyboardButton('📦 پک ایرانیزه', callback_data='shop:iranian_pack')]
     ])
     await update.effective_message.reply_text('لطفاً یکی از پک‌های زیر را انتخاب کنید:', reply_markup=kb)
 
@@ -261,7 +278,11 @@ async def show_product_details(update, context, p_name):
     text = f"🛍 {p['name']}\n{p['description']}\n💵 قیمت: {int(p['price']):,} تومان"
     
     if p['name'] == 'پک ایرانیزه':
-        kb = InlineKeyboardMarkup([[InlineKeyboardButton('🔒 به زودی...', callback_data='locked')]])
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton('خرید با کیف پول', callback_data=f"buyw:{p['id']}"), InlineKeyboardButton('پرداخت کارت‌به‌کارت', callback_data=f"buyc:{p['id']}")],
+            [InlineKeyboardButton('🚀 ارتقا از V1', callback_data=f"upgrade:{p['id']}")],
+            [InlineKeyboardButton('🎟 وارد کردن کد تخفیف', callback_data="wallet:coupon")]
+        ])
         photo = 'https://s31.uupload.ir/files/rippermodsgtavv100/Amir/4/IMG_20261021_205807_285.jpg'
     else:
         kb = InlineKeyboardMarkup([
@@ -315,9 +336,7 @@ async def wallet(update, context):
 async def orders_for_user(update, context):
     with db() as conn:
         with conn.cursor() as cur:
-            # به‌روزرسانی خودکار وضعیت سفارش‌های pending که بیش از ۲۴ ساعت از ایجادشان گذشته باشد
             cur.execute("UPDATE orders SET status='cancelled', updated_at=now() WHERE status='pending' AND created_at < now() - interval '24 hours'")
-            
             cur.execute("SELECT id,product_name,amount,payment_method,status,created_at FROM orders WHERE user_id=%s AND product_name != 'دریافت مجدد لینک' ORDER BY id DESC LIMIT 20", (update.effective_user.id,))
             rows = cur.fetchall()
     if not rows:
@@ -419,7 +438,7 @@ async def deliver(context, uid, order_id, product_name):
 
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT pl.link FROM product_links pl JOIN products p ON pl.product_id = p.id WHERE p.name='سوپر پک' ORDER BY pl.id")
+            cur.execute("SELECT pl.link FROM product_links pl JOIN products p ON pl.product_id = p.id WHERE p.name=%s ORDER BY pl.id", (product_name,))
             links = [r['link'] for r in cur.fetchall()]
 
     if not links:
@@ -479,6 +498,91 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.message.reply_text('کد تخفیف را وارد کنید. سپس محصول را از فروشگاه انتخاب کنید.', reply_markup=back_kb())
             return
 
+        if data.startswith('upgrade:'):
+            pid = int(data.split(':')[1])
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute('SELECT * FROM products WHERE id=%s', (pid,))
+                    p = cur.fetchone()
+            if not p: return
+            
+            context.user_data['flow'] = 'upgrade_confirm'
+            context.user_data['upgrade_pid'] = pid
+            kb = InlineKeyboardMarkup([[InlineKeyboardButton('✅ متوجه شدم، ادامه', callback_data=f'upgok:{pid}')], [InlineKeyboardButton('❌ لغو', callback_data='shop:iranian_pack')]])
+            await q.message.reply_text(
+                f"⚠️ **توجه مهم** ⚠️\n\n"
+                f"شما در حال ارتقای پک V1 به V2 با مبلغ {int(p['upgrade_price']):,} تومان هستید.\n\n"
+                f"اگر شما نسخه V1 را خریداری نکرده‌اید، لطفاً این عملیات را لغو کنید و مستقیماً V2 را خریداری نمایید.\n"
+                f"در غیر این صورت، اگر واریز کنید و ادمین متوجه شود که شما V1 را نخریده‌اید، **پول شما بازگشت داده نمی‌شود.**",
+                reply_markup=kb, parse_mode='Markdown'
+            )
+            return
+
+        if data.startswith('upgok:'):
+            pid = int(data.split(':')[1])
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute('SELECT * FROM products WHERE id=%s', (pid,))
+                    p = cur.fetchone()
+            amount = p['upgrade_price']
+            context.user_data['upgrade_amount'] = amount
+            
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton('پرداخت با کیف پول', callback_data=f'upgw:{pid}')],
+                [InlineKeyboardButton('پرداخت کارت‌به‌کارت', callback_data=f'upgc:{pid}')]
+            ])
+            await q.message.reply_text(f'مبلغ ارتقا: {int(amount):,} تومان\nروش پرداخت را انتخاب کنید:', reply_markup=kb)
+            return
+            
+        if data.startswith('upgw:') or data.startswith('upgc:'):
+            method = 'wallet' if data.startswith('upgw:') else 'card'
+            pid = int(data.split(':')[1])
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute('SELECT * FROM products WHERE id=%s', (pid,))
+                    p = cur.fetchone()
+            amount = p['upgrade_price']
+            
+            if method == 'wallet':
+                with db() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute('SELECT wallet FROM users WHERE telegram_id=%s FOR UPDATE', (uid,))
+                        user = cur.fetchone()
+                        if not user or user['wallet'] < amount:
+                            await q.message.reply_text('موجودی کیف پول کافی نیست.')
+                            return
+                        cur.execute("INSERT INTO orders(user_id,product_id,product_name,amount,payment_method,status,wallet_debited,is_upgrade) VALUES(%s,%s,'ارتقا پک ایرانیزه',%s,'wallet','approved',true,true) RETURNING id", (uid, pid, amount))
+                        order = cur.fetchone()['id']
+                        cur.execute('UPDATE users SET wallet=wallet-%s WHERE telegram_id=%s', (amount, uid))
+                        cur.execute("INSERT INTO wallet_transactions(user_id,amount,kind,reference,reason,idempotency_key) VALUES(%s,%s,'purchase',%s,%s,%s)", (uid, -amount, str(order), 'ارتقا پک', f'upg-{order}'))
+                await q.message.reply_text(f'پرداخت ارتقا ثبت شد. شماره سفارش: #{order}')
+                await deliver(context, uid, order, 'پک ایرانیزه')
+                user_info = f"{q.from_user.first_name} (@{q.from_user.username or 'بدون‌یوزرنیم'}) - آیدی: {uid}"
+                await log_event(context, f'🚀 ارتقا پک با کیف پول\nسفارش: #{order}\nکاربر: {user_info}\nمبلغ: {int(amount):,} تومان')
+            else:
+                with db() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("INSERT INTO orders(user_id,product_id,product_name,amount,payment_method,status,is_upgrade) VALUES(%s,%s,'ارتقا پک ایرانیزه',%s,'card','pending',true) RETURNING id", (uid, pid, amount))
+                        order = cur.fetchone()['id']
+                card = os.getenv('CARD_NUMBER', '5022291544593963').strip() or 'تنظیم نشده'
+                holder = os.getenv('CARD_HOLDER', 'ریبعی نژاد').strip() or 'تنظیم نشده'
+                msg = (
+                    f"برای ارتقای پک، مبلغ {int(amount):,} تومان را به شماره‌ی حساب زیر واریز کنید 👇\n\n"
+                    f"===================\n"
+                    f"{card}\n"
+                    f"**{holder}**\n"
+                    f"===================\n\n"
+                    f"❌ این تراکنش به مدت ۲۴ ساعت اعتبار دارد و پس از آن امکان پرداخت این تراکنش وجود نخواهد داشت.\n\n"
+                    f"‼️ مبلغ باید همان مبلغی باشد که در بالا ذکر شده واریز نمایید.\n"
+                    f"‼️ امکان برداشت وجه از کیف پول نیست.\n\n"
+                    f"👆 بعد از پرداخت دکمه پرداخت کردم را زده سپس تصویر رسید را ارسال نمایید."
+                )
+                kb = InlineKeyboardMarkup([[InlineKeyboardButton('✅ پرداخت کردم | ارسال رسید', callback_data=f'rcpt:{order}:order')]])
+                await q.message.reply_text(msg, reply_markup=kb, parse_mode='Markdown')
+                user_info = f"{q.from_user.first_name} (@{q.from_user.username or 'بدون‌یوزرنیم'}) - آیدی: {uid}"
+                await log_event(context, f'🚀 سفارش ارتقا کارت‌به‌کارت\nسفارش #{order}\nکاربر {user_info}\nمبلغ {int(amount):,}')
+            return
+
         if data.startswith('buyw:') or data.startswith('buyc:'):
             method = 'wallet' if data.startswith('buyw:') else 'card'
             pid = int(data.split(':')[1])
@@ -490,7 +594,7 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         await q.message.reply_text('محصول یافت نشد یا غیرفعال است.')
                         return
                     
-                    cur.execute("SELECT 1 FROM orders WHERE user_id=%s AND product_id=%s AND status IN ('approved','delivered')", (uid, pid))
+                    cur.execute("SELECT 1 FROM orders WHERE user_id=%s AND product_id=%s AND status IN ('approved','delivered') AND is_upgrade=false", (uid, pid))
                     if cur.fetchone():
                         await q.message.reply_text('⛔ شما قبلاً این محصول را سفارش داده‌اید و امکان سفارش مجدد وجود ندارد.')
                         return
@@ -585,7 +689,8 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if data.startswith('rcpt:'):
             _, rid, kind = data.split(':')
             context.user_data['flow'] = 'order_receipt' if kind == 'order' else 'topup_receipt'
-            context.user_data['order_id'] = int(rid)
+            if kind == 'order':
+                context.user_data['order_id'] = int(rid)
             await q.message.reply_text('لطفاً تصویر رسید پرداخت خود را همینجا ارسال کنید:')
             return
 
@@ -594,6 +699,11 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await q.message.reply_text('دسترسی ندارید.')
                 return
             action = data[4:]
+            
+            if action in ('coupon', 'wallet', 'edit_links', 'edit_price') and not is_super(uid):
+                await q.message.reply_text('⛔ این بخش فقط برای مدیر اصلی است.')
+                return
+                
             if action == 'stats':
                 with db() as conn:
                     with conn.cursor() as cur:
@@ -627,18 +737,12 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         else:
                             await q.message.reply_text(txt, reply_markup=kb)
             elif action == 'coupon':
-                if not is_super(uid):
-                    await q.message.reply_text('⛔ فقط مدیر اصلی اجازه ساخت کد تخفیف را دارد.')
-                    return
                 context.user_data['flow'] = 'adm_coupon_code'
                 await q.message.reply_text('مرحله ۱ از ۵:\nلطفاً یک نام (کد) برای تخفیف وارد کنید (مثلاً: OFF20):')
             elif action == 'finduser':
                 context.user_data['flow'] = 'finduser'
                 await q.message.reply_text('Telegram ID کاربر را وارد کنید:')
             elif action == 'wallet':
-                if not is_super(uid):
-                    await q.message.reply_text('⛔ فقط مدیر اصلی اجازه تغییر موجودی را دارد.')
-                    return
                 context.user_data['flow'] = 'adm_wallet_id'
                 await q.message.reply_text('مرحله ۱ از ۳:\nآیدی عددی (Telegram ID) کاربر را وارد کنید:')
             elif action == 'settings':
@@ -668,16 +772,32 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         cur.execute('SELECT * FROM admin_audit ORDER BY id DESC LIMIT 20')
                         rows = cur.fetchall()
                 await q.message.reply_text('\n'.join([f"{r['created_at']:%m-%d %H:%M} | مدیر {r['admin_id']} | {r['action']} | {r['target']} | {r['details']}" for r in rows]) or 'سابقه‌ای ثبت نشده است.')
+            elif action == 'edit_price':
+                with db() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute('SELECT id, name FROM products WHERE active=true ORDER BY id')
+                        rows = cur.fetchall()
+                kb = InlineKeyboardMarkup([[InlineKeyboardButton(r['name'], callback_data=f"chg_price:{r['id']}")] for r in rows])
+                await q.message.reply_text('محصولی که می‌خواهید قیمت آن را تغییر دهید انتخاب کنید:', reply_markup=kb)
             elif action == 'edit_links':
-                if not is_super(uid):
-                    await q.message.reply_text('⛔ فقط مدیر اصلی اجازه تغییر لینک‌ها را دارد.')
-                    return
                 with db() as conn:
                     with conn.cursor() as cur:
                         cur.execute('SELECT id, name FROM products WHERE active=true ORDER BY id')
                         rows = cur.fetchall()
                 kb = InlineKeyboardMarkup([[InlineKeyboardButton(r['name'], callback_data=f"chg_links:{r['id']}")] for r in rows])
                 await q.message.reply_text('محصولی که می‌خواهید لینک‌های آن را تغییر دهید انتخاب کنید:', reply_markup=kb)
+            return
+
+        if data.startswith('chg_price:'):
+            if not is_super(uid): return
+            pid = int(data.split(':')[1])
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute('SELECT name FROM products WHERE id=%s', (pid,))
+                    p = cur.fetchone()
+            context.user_data['flow'] = 'edit_price_text'
+            context.user_data['edit_price_pid'] = pid
+            await q.message.reply_text(f'لطفاً قیمت جدید را برای {p["name"]} به تومان و فقط به صورت عدد وارد کنید:\nمثال: 799000')
             return
 
         if data.startswith('chg_links:'):
@@ -748,7 +868,7 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         new_oid = cur.fetchone()['id']
                         cur.execute("INSERT INTO wallet_transactions(user_id,amount,kind,reference,reason,idempotency_key) VALUES(%s,%s,'purchase',%s,%s,%s)", (uid, -REDOWNLOAD_PRICE, str(new_oid), 'دریافت مجدد لینک', f'redl-{new_oid}'))
                 await q.message.reply_text('پرداخت انجام شد. در حال ارسال لینک‌ها...')
-                await deliver(context, uid, new_oid, 'دریافت مجدد لینک')
+                await deliver(context, uid, new_oid, 'سوپر پک')
                 user_info = f"{q.from_user.first_name} (@{q.from_user.username or 'بدون‌یوزرنیم'}) - آیدی: {uid}"
                 await log_event(context, f'🔄 دریافت مجدد لینک (کیف پول)\nکاربر: {user_info}\nمبلغ: {int(REDOWNLOAD_PRICE):,} تومان')
             else:
@@ -794,6 +914,34 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await msg.reply_text('عملیات لغو شد.', reply_markup=main_keyboard())
         return
+        
+    # --- Registration Flow ---
+    flow = context.user_data.get('flow')
+    if flow == 'reg_first_name':
+        context.user_data['reg_first_name'] = text
+        context.user_data['flow'] = 'reg_last_name'
+        await msg.reply_text('لطفاً **نام خانوادگی** خود را وارد کنید:')
+        return
+        
+    if flow == 'reg_last_name':
+        context.user_data['reg_last_name'] = text
+        context.user_data['flow'] = 'reg_phone'
+        await msg.reply_text('لطفاً **شماره تماس** خود را وارد کنید (مثلاً: 09123456789):')
+        return
+        
+    if flow == 'reg_phone':
+        phone = text
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('UPDATE users SET reg_first_name=%s, reg_last_name=%s, phone=%s WHERE telegram_id=%s', 
+                            (context.user_data['reg_first_name'], context.user_data['reg_last_name'], phone, u.id))
+        context.user_data.clear()
+        await msg.reply_text('✅ ثبت‌نام شما با موفقیت انجام شد! حالا می‌توانید از منوی زیر استفاده کنید.', reply_markup=main_keyboard())
+        if is_admin(u.id):
+            await msg.reply_text('پنل مدیریت:', reply_markup=admin_kb())
+        return
+
+    # --- Normal Flows ---
     if text == '🛍 فروشگاه':
         await show_shop(update, context); return
     if text == '💰 کیف پول':
@@ -832,7 +980,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if is_admin(u.id) and text == 'پنل مدیریت':
         await msg.reply_text('پنل مدیریت:', reply_markup=admin_kb()); return
-    flow = context.user_data.get('flow')
+        
     try:
         if flow == 'topup_amount':
             amount = Decimal(text)
@@ -928,7 +1076,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     rid = cur.fetchone()['id']
             context.user_data.clear()
             await msg.reply_text(f'درخواست پورت #{rid} ثبت شد.', reply_markup=main_keyboard())
-            for aid in {SUPER_ADMIN, PORT_ADMIN, ADMIN3} - {None}:
+            for aid in {SUPER_ADMIN, PORT_ADMIN}:
                 try:
                     await context.bot.send_message(aid, f'🎮 درخواست پورت #{rid}\nکاربر: {u.id}\nبازی: {game}\nپلتفرم: {platform}\nتوضیحات: {details}')
                 except TelegramError:
@@ -951,11 +1099,10 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data.clear()
             await msg.reply_text(f'درخواست پک اختصاصی #{rid} ثبت شد. به زودی با شما تماس می‌گیریم.', reply_markup=main_keyboard())
             user_info = f"{u.first_name} (@{u.username or 'بدون‌یوزرنیم'}) - آیدی: {u.id}"
-            for aid in ADMIN_IDS:
-                try:
-                    await context.bot.send_message(aid, f'📦 درخواست پک اختصاصی #{rid}\nکاربر: {user_info}\nبازی: {game}\nپلتفرم: {platform}\nتوضیحات: {details}')
-                except TelegramError:
-                    pass
+            try:
+                await context.bot.send_message(SUPER_ADMIN, f'📦 درخواست پک اختصاصی #{rid}\nکاربر: {user_info}\nبازی: {game}\nپلتفرم: {platform}\nتوضیحات: {details}')
+            except TelegramError:
+                pass
             await log_event(context, f'📦 درخواست پک اختصاصی #{rid} از کاربر {user_info}: {game} / {platform}'); return
         if flow == 'support':
             file_id = msg.photo[-1].file_id if msg.photo else None
@@ -1069,8 +1216,20 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     for link in links:
                         cur.execute("INSERT INTO product_links(product_id, link) VALUES(%s, %s)", (pid, link))
             audit(u.id, 'links_updated', str(pid), f'{len(links)} links')
-            await msg.reply_text(f'✅ تعداد {len(links)} لینک با موفقیت برای این محصول ثبت شد.\n\n(لینک بیس به صورت پیش‌فرض و رایگان برای همه ارسال می‌شود و نیازی به قرار دادن آن در اینجا نیست.)', reply_markup=main_keyboard())
+            await msg.reply_text(f'✅ تعداد {len(links)} لینک با موفقیت برای این محصول ثبت شد.', reply_markup=main_keyboard())
             await log_event(context, f'🔗 لینک‌های محصول {pid} توسط مدیر {u.id} تغییر کرد.')
+            context.user_data.clear(); return
+
+        if flow == 'edit_price_text':
+            if not is_super(u.id): return
+            pid = context.user_data.get('edit_price_pid')
+            new_price = Decimal(text)
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("UPDATE products SET price=%s WHERE id=%s", (new_price, pid))
+            audit(u.id, 'price_updated', str(pid), f'{new_price}')
+            await msg.reply_text(f'✅ قیمت محصول با موفقیت به {int(new_price):,} تومان تغییر یافت.', reply_markup=main_keyboard())
+            await log_event(context, f'💵 قیمت محصول {pid} توسط مدیر {u.id} به {int(new_price):,} تغییر کرد.')
             context.user_data.clear(); return
 
         if flow == 'support_reply_target' and is_admin(u.id):
