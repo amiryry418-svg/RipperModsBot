@@ -449,24 +449,6 @@ async def review_order(q, context, rid, decision, admin_id):
             if cur.rowcount != 1:
                 await q.message.reply_text('این سفارش قبلاً بررسی شده است.')
                 return
-                if data.startswith('rlsel:'):
-    pid = int(data.split(':')[1])
-    with db() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT name FROM products WHERE id=%s", (pid,))
-            p = cur.fetchone()
-    if not p: return
-    
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton('پرداخت با کیف پول', callback_data=f'rl:{pid}:wallet')],
-        [InlineKeyboardButton('پرداخت کارت‌به‌کارت', callback_data=f'rl:{pid}:card')]
-    ])
-    await q.message.reply_text(
-        f"برای دریافت مجدد لینک‌های {p['name']}، مبلغ {int(REDOWNLOAD_PRICE):,} تومان هزینه دارد.\n"
-        f"نحوه پرداخت را انتخاب کنید:",
-        reply_markup=kb
-    )
-    return
             if new == 'approved' and r['coupon_id']:
                 cur.execute('INSERT INTO coupon_uses(coupon_id,user_id,order_id) VALUES(%s,%s,%s) ON CONFLICT DO NOTHING', (r['coupon_id'], r['user_id'], rid))
                 if cur.rowcount:
@@ -546,6 +528,25 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if data == 'shop:iranian_pack':
             await show_product_details(update, context, 'پک ایرانیزه')
+            return
+
+        if data.startswith('rlsel:'):
+            pid = int(data.split(':')[1])
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT name FROM products WHERE id=%s", (pid,))
+                    p = cur.fetchone()
+            if not p: return
+            
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton('پرداخت با کیف پول', callback_data=f'rl:{pid}:wallet')],
+                [InlineKeyboardButton('پرداخت کارت‌به‌کارت', callback_data=f'rl:{pid}:card')]
+            ])
+            await q.message.reply_text(
+                f"برای دریافت مجدد لینک‌های {p['name']}، مبلغ {int(REDOWNLOAD_PRICE):,} تومان هزینه دارد.\n"
+                f"نحوه پرداخت را انتخاب کنید:",
+                reply_markup=kb
+            )
             return
 
         if data.startswith('appcpn:'):
