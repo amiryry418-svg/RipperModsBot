@@ -70,7 +70,7 @@ INSTALL_TUTORIAL = """
 5️⃣ **نصب روی کنسول:** فلش را به کنسول وصل کنید. وارد مسیر `Debug Settings / Package Installer` شوید و فایل را نصب کنید.
 """
 
-REDOWNLOAD_PRICE = Decimal('150')
+REDOWNLOAD_PRICE = Decimal('150000')
 
 _db_initialized = False
 _db_lock = threading.Lock()
