@@ -137,14 +137,14 @@ def init_db():
                 for sql in schema:
                     cur.execute(sql)
                 
-                # پاکسازی و ساخت مجدد محصولات برای رفع مشکل جابه‌جایی ID
-                cur.execute("DELETE FROM product_links")
-                cur.execute("DELETE FROM products WHERE name IN ('سوپر پک', 'پک ایرانیزه', 'Super Pack')")
-                cur.execute("INSERT INTO products(id, name, description, price, active) VALUES(1, 'سوپر پک', 'بسته ویژه RipperMods', 799000, true)")
-                cur.execute("INSERT INTO products(id, name, description, price, active, upgrade_price) VALUES(2, 'پک ایرانیزه', 'نسخه ایرانیزه شده GTA V (V2)', 799000, true, 350000)")
-                cur.execute("SELECT setval('products_id_seq', 2, true)")
-                cur.execute("UPDATE orders SET product_name='سوپر پک' WHERE product_name='Super Pack'")
+                # ساخت محصولات در صورت نبودن
+                cur.execute("INSERT INTO products(name,description,price,active) SELECT %s,%s,%s,true WHERE NOT EXISTS (SELECT 1 FROM products WHERE name=%s)", ('سوپر پک', 'بسته ویژه RipperMods', 799000, 'سوپر پک'))
+                cur.execute("INSERT INTO products(name,description,price,active,upgrade_price) SELECT %s,%s,%s,true,%s WHERE NOT EXISTS (SELECT 1 FROM products WHERE name=%s)", ('پک ایرانیزه', 'نسخه ایرانیزه شده GTA V (V2)', 799000, 350000, 'پک ایرانیزه'))
                 
+                # پاک کردن لینک‌های اشتباه و تنظیم لینک‌های پیش‌فرض برای هر دو پک
+                cur.execute("DELETE FROM product_links")
+                
+                # لینک‌های سوپر پک
                 cur.execute("SELECT id FROM products WHERE name='سوپر پک'")
                 prod_id = cur.fetchone()['id']
                 initial_links = [
@@ -176,6 +176,11 @@ def init_db():
                 ]
                 for link in initial_links:
                     cur.execute("INSERT INTO product_links(product_id, link) VALUES(%s, %s)", (prod_id, link))
+                
+                # لینک‌های پک ایرانیزه (فعلاً فقط لینک عکسش رو می‌ذاریم تا ادمین بعداً عوض کنه)
+                cur.execute("SELECT id FROM products WHERE name='پک ایرانیزه'")
+                prod_id_ir = cur.fetchone()['id']
+                cur.execute("INSERT INTO product_links(product_id, link) VALUES(%s, %s)", (prod_id_ir, "https://s31.uupload.ir/files/rippermodsgtavv100/Amir/4/IMG_20261021_205807_285.jpg"))
                 
         _db_initialized = True
 
