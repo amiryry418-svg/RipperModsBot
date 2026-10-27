@@ -374,7 +374,7 @@ async def orders_for_user(update, context):
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute("UPDATE orders SET status='cancelled', updated_at=now() WHERE status='pending' AND created_at < now() - interval '24 hours'")
-            cur.execute("SELECT id,product_name,amount,payment_method,status,created_at FROM orders WHERE user_id=%s AND product_name != 'دریافت مجدد لینک' ORDER BY id DESC LIMIT 20", (update.effective_user.id,))
+            cur.execute("SELECT id,product_name,amount,payment_method,status,created_at FROM orders WHERE user_id=%s AND product_name NOT LIKE 'دریافت مجدد%%' ORDER BY id DESC LIMIT 20", (update.effective_user.id,))
             rows = cur.fetchall()
     if not rows:
         await update.effective_message.reply_text('هنوز سفارشی ندارید.', reply_markup=main_keyboard())
@@ -473,19 +473,21 @@ async def deliver(context, uid, order_id, product_name):
         log.warning(f"Order {order_id} not delivered: row not found or already sent.")
         return
 
+    clean_name = product_name.replace('دریافت مجدد ', '')
+    
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT pl.link FROM product_links pl JOIN products p ON pl.product_id = p.id WHERE p.name=%s ORDER BY pl.id", (product_name,))
+            cur.execute("SELECT pl.link FROM product_links pl JOIN products p ON pl.product_id = p.id WHERE p.name ILIKE %s ORDER BY pl.id", (f"%{clean_name}%",))
             links = [r['link'] for r in cur.fetchall()]
 
     if not links:
         try:
-            await context.bot.send_message(uid, '❌ متأسفانه لینک‌های دانلود این محصول در حال حاضر در دسترس نیست. لطفاً با پشتیبانی تماس بگیرید.')
+            await context.bot.send_message(uid, f'❌ متأسفانه لینک‌های دانلود برای {clean_name} در حال حاضر در دسترس نیست. لطفاً با پشتیبانی تماس بگیرید.')
         except TelegramError:
             pass
         return
 
-    msg_header = f'🎉 محصول شما آماده تحویل است!\nسفارش: #{order_id}\nمحصول: {product_name}\n\n'
+    msg_header = f'🎉 محصول شما آماده تحویل است!\nسفارش: #{order_id}\nمحصول: {clean_name}\n\n'
     msg_header += '⚠️ توجه: لینک‌های دانلود به صورت یک فایل متنی در پیام بعدی برای شما ارسال می‌شود.\n'
     msg_header += '⚠️ این لینک‌ها فقط تا ۵ روز آینده قابل استفاده هستند.'
 
@@ -503,7 +505,7 @@ async def deliver(context, uid, order_id, product_name):
         await context.bot.send_document(
             uid, 
             document=InputFile(file_io, filename=f"RipperMods_Links.txt"), 
-            caption="✅ این فایل حاوی تمام لینک‌های دانلود شماست."
+            caption=f"✅ این فایل حاوی لینک‌های {clean_name} است."
         )
     except TelegramError as e:
         log.error(f"Failed to send file to {uid}: {e}")
@@ -652,7 +654,7 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         await q.message.reply_text('محصول یافت نشد یا غیرفعال است.')
                         return
                     
-                    cur.execute("SELECT 1 FROM orders WHERE user_id=%s AND product_id=%s AND status IN ('approved','delivered') AND is_upgrade=false", (uid, pid))
+                    cur.execute("SELECT 1 FROM orders WHERE user_id=%s AND product_id=%s AND status IN ('approved','delivered') AND is_upgrade=false AND product_name NOT LIKE 'دریافت مجدد%%'", (uid, pid))
                     if cur.fetchone():
                         await q.message.reply_text('⛔ شما قبلاً این محصول را سفارش داده‌اید و امکان سفارش مجدد وجود ندارد.')
                         return
@@ -913,7 +915,6 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     p = cur.fetchone()
                     if not p: return
                     
-                    # هشدار پرداخت
                     context.user_data['flow'] = 'redl_confirm'
                     context.user_data['rl_pid'] = pid
                     context.user_data['rl_method'] = method
