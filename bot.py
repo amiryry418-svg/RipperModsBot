@@ -177,6 +177,10 @@ def init_db():
                     ]
                     for link in initial_links:
                         cur.execute("INSERT INTO product_links(product_id, link) VALUES(%s, %s)", (prod_id, link))
+                
+                # پاک کردن لینک‌های اشتباه قبلی برای پک ایرانیزه
+                cur.execute("DELETE FROM product_links WHERE product_id = (SELECT id FROM products WHERE name='پک ایرانیزه')")
+                
         _db_initialized = True
 
 def audit(admin_id: int, action: str, target: str = '', details: str = ''):
@@ -1061,10 +1065,11 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text(f'🎮 **لینک دانلود فایل بیس رایگان:**\n\n{BASE_LINK}\n\n⚠️ لطفاً توجه داشته باشید که برای استفاده از مودها، حتماً باید نسخه بازی شما با این نسخه بیس یکی باشد.', reply_markup=main_keyboard(), disable_web_page_preview=True)
         return
     if text == '🔄 دریافت مجدد لینک':
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton('سوپر پک', callback_data='rlsel:1')],
-            [InlineKeyboardButton('پک ایرانیزه', callback_data='rlsel:2')]
-        ])
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT id, name FROM products WHERE active=true ORDER BY id')
+                rows = cur.fetchall()
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton(r['name'], callback_data=f"rlsel:{r['id']}")] for r in rows])
         await msg.reply_text('برای دریافت مجدد لینک، پکی که قبلاً خریداری کرده‌اید را انتخاب کنید:', reply_markup=kb)
         return
     if is_admin(u.id) and text == 'پنل مدیریت':
