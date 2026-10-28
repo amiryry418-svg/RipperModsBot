@@ -164,6 +164,7 @@ def init_db():
             """CREATE TABLE IF NOT EXISTS coupon_uses (id BIGSERIAL PRIMARY KEY, coupon_id BIGINT NOT NULL REFERENCES coupons(id), user_id BIGINT NOT NULL REFERENCES users(telegram_id), order_id BIGINT NOT NULL UNIQUE REFERENCES orders(id), used_at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE(coupon_id,user_id))""",
             """CREATE TABLE IF NOT EXISTS nostalgia_requests (id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL REFERENCES users(telegram_id), game TEXT NOT NULL, platform TEXT NOT NULL, details TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'new', admin_reply TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now())""",
             """CREATE TABLE IF NOT EXISTS custom_pack_requests (id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL REFERENCES users(telegram_id), game TEXT NOT NULL, platform TEXT NOT NULL, details TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'new', admin_reply TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now())""",
+            """CREATE TABLE IF NOT EXISTS custom_trainer_requests (id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL REFERENCES users(telegram_id), details TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'new', admin_reply TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now())""",
             """CREATE TABLE IF NOT EXISTS support_messages (id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL REFERENCES users(telegram_id), direction TEXT NOT NULL CHECK(direction IN ('user_to_admin','admin_to_user')), message_text TEXT, file_id TEXT, file_type TEXT, admin_id BIGINT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())""",
             """CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_by BIGINT, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())""",
             """CREATE TABLE IF NOT EXISTS admin_audit (id BIGSERIAL PRIMARY KEY, admin_id BIGINT NOT NULL, action TEXT NOT NULL, target TEXT, details TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())""",
@@ -280,9 +281,9 @@ def admin_kb():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton('📊 آمار', callback_data='adm:stats'), InlineKeyboardButton('📦 سفارش‌ها', callback_data='adm:orders')],
         [InlineKeyboardButton('💳 شارژهای در انتظار', callback_data='adm:topups'), InlineKeyboardButton('🧾 سفارش‌های در انتظار', callback_data='adm:pendingorders')],
+        [InlineKeyboardButton('📋 درخواست‌ها', callback_data='adm:requests')],
         [InlineKeyboardButton('🎟 ساخت کد تخفیف', callback_data='adm:coupon'), InlineKeyboardButton('🔎 جست‌وجوی کاربر', callback_data='adm:finduser')],
         [InlineKeyboardButton('💰 تغییر موجودی', callback_data='adm:wallet'), InlineKeyboardButton('⚙️ تنظیمات پرداخت', callback_data='adm:settings')],
-        [InlineKeyboardButton('🎮 درخواست‌های پورت', callback_data='adm:ports'), InlineKeyboardButton('💬 پاسخ پشتیبانی', callback_data='adm:support')],
         [InlineKeyboardButton('💵 تغییر قیمت پک‌ها', callback_data='adm:edit_price'), InlineKeyboardButton('🔗 تغییر لینک محصولات', callback_data='adm:edit_links')],
         [InlineKeyboardButton('📣 پیام همگانی', callback_data='adm:broadcast'), InlineKeyboardButton('📜 سوابق مدیران', callback_data='adm:audit')]
     ])
@@ -637,9 +638,9 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if data == 'trainer_custom':
             context.user_data['flow'] = 'trainer_custom_request'
             await q.message.reply_text(
-                'لطفاً نام بازی و کد CUSA رو به این شکل بفرستید:\n\n'
-                '`اسم بازی | CUSA00411`\n\n'
-                'مثال: `GTA V | CUSA00411`',
+                'لطفاً اطلاعات ترینر اختصاصی مورد نظرتون رو بفرستید.\n\n'
+                'مثال: `CUSA00411 - v1.27 - GTA V`\n\n'
+                'می‌تونید هر توضیح دیگه‌ای هم که لازمه اضافه کنید.',
                 reply_markup=back_kb(), parse_mode='Markdown'
             )
             return
@@ -654,6 +655,16 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "4️⃣ حالا وارد بازی مورد نظرتون بشید. کد CUSA (مثلاً CUSA00411) روی صفحه نمایش داده می‌شه."
             )
             await q.message.reply_text(guide, reply_markup=back_kb(), parse_mode='Markdown')
+            return
+
+        if data.startswith('customtrainer_reply:'):
+            if not is_admin(uid):
+                await q.message.reply_text('دسترسی ندارید.')
+                return
+            target = int(data.split(':')[1])
+            context.user_data['flow'] = 'customtrainer_reply_text'
+            context.user_data['customtrainer_target'] = target
+            await q.message.reply_text('پاسخ خودتون رو بنویسید:')
             return
 
         if data.startswith('rlsel:'):
@@ -887,6 +898,15 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if action in ('coupon', 'wallet', 'edit_links', 'edit_price') and not is_super(uid):
                 await q.message.reply_text('⛔ این بخش فقط برای مدیر اصلی است.')
                 return
+
+            if action == 'requests':
+                kb = InlineKeyboardMarkup([
+                    [InlineKeyboardButton('🎮 درخواست‌های پورت', callback_data='req:ports')],
+                    [InlineKeyboardButton('📦 درخواست‌های پک اختصاصی', callback_data='req:custom_packs')],
+                    [InlineKeyboardButton('🛠 درخواست‌های ترینر اختصاصی', callback_data='req:custom_trainers')],
+                ])
+                await q.message.reply_text('📋 کدوم لیست درخواست‌ها رو می‌خوای ببینی؟', reply_markup=kb)
+                return
                 
             if action == 'stats':
                 with db() as conn:
@@ -939,12 +959,7 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         rows = cur.fetchall()
                 await q.message.reply_text('\n'.join([f"#{r['id']} | {r['user_id']} | {r['product_name']} | {int(r['amount']):,} | {r['status']}" for r in rows]) or 'سفارشی نیست.')
             elif action == 'ports':
-                with db() as conn:
-                    with conn.cursor() as cur:
-                        cur.execute('SELECT * FROM nostalgia_requests ORDER BY id DESC LIMIT 20')
-                        rows = cur.fetchall()
-                for r in rows:
-                    await q.message.reply_text(f"درخواست پورت #{r['id']}\nکاربر: {r['user_id']}\nبازی: {r['game']}\nپلتفرم: {r['platform']}\nتوضیحات: {r['details']}\nوضعیت: {r['status']}", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('در حال بررسی', callback_data=f"portstatus:{r['id']}:reviewing"), InlineKeyboardButton('انجام شد', callback_data=f"portstatus:{r['id']}:done"), InlineKeyboardButton('پاسخ', callback_data=f"portreply:{r['id']}")]]))
+                await q.message.reply_text('لطفاً از منوی «📋 درخواست‌ها» استفاده کنید.', reply_markup=admin_kb())
             elif action == 'support':
                 context.user_data['flow'] = 'support_reply'
                 await q.message.reply_text('برای پاسخ وارد کنید: TelegramID,متن پاسخ')
@@ -971,6 +986,78 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         rows = cur.fetchall()
                 kb = InlineKeyboardMarkup([[InlineKeyboardButton(r['name'], callback_data=f"chg_links:{r['id']}")] for r in rows])
                 await q.message.reply_text('محصولی که می‌خواهید لینک‌های آن را تغییر دهید انتخاب کنید:', reply_markup=kb)
+            return
+
+        if data.startswith('req:'):
+            if not is_admin(uid):
+                await q.message.reply_text('دسترسی ندارید.')
+                return
+            req_type = data.split(':')[1]
+            if req_type == 'ports':
+                with db() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT * FROM nostalgia_requests WHERE status != 'done' ORDER BY id DESC LIMIT 20")
+                        rows = cur.fetchall()
+                if not rows:
+                    await q.message.reply_text('هیچ درخواست پورت در انتظاری وجود نداره.')
+                    return
+                for r in rows:
+                    await q.message.reply_text(
+                        f"🎮 درخواست پورت #{r['id']}\nکاربر: {r['user_id']}\nبازی: {r['game']}\nپلتفرم: {r['platform']}\nتوضیحات: {r['details']}\nوضعیت: {r['status']}",
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton('در حال بررسی', callback_data=f"portstatus:{r['id']}:reviewing"), InlineKeyboardButton('انجام شد', callback_data=f"portstatus:{r['id']}:done")],
+                            [InlineKeyboardButton('پاسخ به کاربر', callback_data=f"portreply:{r['id']}")]
+                        ])
+                    )
+            elif req_type == 'custom_packs':
+                with db() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT * FROM custom_pack_requests WHERE status != 'done' ORDER BY id DESC LIMIT 20")
+                        rows = cur.fetchall()
+                if not rows:
+                    await q.message.reply_text('هیچ درخواست پک اختصاصی در انتظاری وجود نداره.')
+                    return
+                for r in rows:
+                    await q.message.reply_text(
+                        f"📦 درخواست پک اختصاصی #{r['id']}\nکاربر: {r['user_id']}\nبازی: {r['game']}\nپلتفرم: {r['platform']}\nتوضیحات: {r['details']}\nوضعیت: {r['status']}"
+                    )
+            elif req_type == 'custom_trainers':
+                with db() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT * FROM custom_trainer_requests WHERE status != 'done' ORDER BY id DESC LIMIT 20")
+                        rows = cur.fetchall()
+                if not rows:
+                    await q.message.reply_text('هیچ درخواست ترینر اختصاصی در انتظاری وجود نداره.')
+                    return
+                for r in rows:
+                    await q.message.reply_text(
+                        f"🛠 درخواست ترینر اختصاصی #{r['id']}\nکاربر: {r['user_id']}\nتوضیحات: {r['details']}\nوضعیت: {r['status']}",
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton('در حال بررسی', callback_data=f"trainerstatus:{r['id']}:reviewing"), InlineKeyboardButton('انجام شد', callback_data=f"trainerstatus:{r['id']}:done")],
+                            [InlineKeyboardButton('پاسخ به کاربر', callback_data=f"customtrainer_reply:{r['user_id']}")]
+                        ])
+                    )
+            return
+
+        if data.startswith('trainerstatus:'):
+            if not is_admin(uid):
+                await q.message.reply_text('دسترسی ندارید.')
+                return
+            _, rid, status = data.split(':', 2)
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute('UPDATE custom_trainer_requests SET status=%s,updated_at=now() WHERE id=%s RETURNING user_id', (status, int(rid)))
+                    row = cur.fetchone()
+            if row:
+                audit(uid, 'trainer_status', rid, status)
+                try:
+                    await context.bot.send_message(row['user_id'], f'وضعیت درخواست ترینر اختصاصی #{rid} به «{status}» تغییر کرد.')
+                except TelegramError:
+                    pass
+                await q.message.reply_text('وضعیت ثبت شد.')
+                await log_event(context, f'🛠 تغییر وضعیت درخواست ترینر اختصاصی #{rid} به {status} توسط {uid}')
+            else:
+                await q.message.reply_text('درخواست پیدا نشد.')
             return
 
         if data.startswith('chg_price:'):
@@ -1231,26 +1318,48 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         if flow == 'trainer_custom_request':
-            parts = text.split('|')
-            if len(parts) != 2:
-                await msg.reply_text('❌ فرمت اشتباه است. لطفاً به شکل `اسم بازی | CUSA00411` بفرستید.')
-                return
-            game_name = parts[0].strip()
-            cusa_id = parts[1].strip()
             context.user_data['flow'] = None
             with db() as conn:
                 with conn.cursor() as cur:
                     cur.execute('SELECT reg_name, phone FROM users WHERE telegram_id=%s', (u.id,))
                     uinfo = cur.fetchone()
-            user_info = f"{uinfo['reg_name'] if uinfo else 'ناشناس'} | @{u.username or 'بدون‌یوزرنیم'} | {u.id}"
+                    cur.execute('INSERT INTO custom_trainer_requests(user_id, details) VALUES(%s,%s) RETURNING id', (u.id, text))
+                    rid = cur.fetchone()['id']
+            
+            name = uinfo['reg_name'] if uinfo else 'ناشناس'
+            phone = uinfo['phone'] if uinfo else 'نامشخص'
+            uname = f"@{u.username}" if u.username else 'بدون‌یوزرنیم'
+            
+            msg_to_admin = (
+                f"🛠 **درخواست ترینر اختصاصی #{rid}**\n\n"
+                f"📝 متن درخواست:\n{text}\n\n"
+                f"👤 کاربر: {name}\n"
+                f"🔗 یوزرنیم: {uname}\n"
+                f"🆔 آیدی: `{u.id}`\n"
+                f"📱 تلفن: {phone}"
+            )
+            
+            kb = InlineKeyboardMarkup([[InlineKeyboardButton('💬 پاسخ به کاربر', callback_data=f'customtrainer_reply:{u.id}')]])
+            
             admin3 = ADMIN3
             try:
                 if admin3:
-                    await context.bot.send_message(admin3, f'🛠 **درخواست ساخت ترینر اختصاصی**\n\nبازی: {game_name}\nCUSA: {cusa_id}\n\nکاربر: {user_info}')
+                    await context.bot.send_message(admin3, msg_to_admin, reply_markup=kb, parse_mode='Markdown')
             except TelegramError:
                 pass
-            await log_event(context, f'🛠 درخواست ترینر اختصاصی | بازی: {game_name} | CUSA: {cusa_id} | کاربر: {user_info}')
             await msg.reply_text('✅ درخواست شما برای ساخت ترینر اختصاصی ثبت شد. به زودی با شما تماس می‌گیریم.', reply_markup=main_keyboard())
+            return
+
+        if flow == 'customtrainer_reply_text' and is_admin(u.id):
+            target = context.user_data['customtrainer_target']
+            body = text
+            try:
+                await context.bot.send_message(target, f'💬 **پاسخ به درخواست ترینر اختصاصی شما:**\n\n{body}', parse_mode='Markdown')
+            except TelegramError:
+                pass
+            audit(u.id, 'customtrainer_reply', str(target), body)
+            context.user_data.clear()
+            await msg.reply_text('پاسخ شما برای کاربر ارسال شد.')
             return
 
         if flow == 'topup_amount':
@@ -1359,14 +1468,33 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 with conn.cursor() as cur:
                     cur.execute('INSERT INTO nostalgia_requests(user_id,game,platform,details) VALUES(%s,%s,%s,%s) RETURNING id', (u.id, game, platform, details))
                     rid = cur.fetchone()['id']
+                    cur.execute('SELECT reg_name, phone FROM users WHERE telegram_id=%s', (u.id,))
+                    uinfo = cur.fetchone()
             context.user_data.clear()
             await msg.reply_text(f'درخواست پورت #{rid} ثبت شد.', reply_markup=main_keyboard())
+            
+            name = uinfo['reg_name'] if uinfo else 'ناشناس'
+            phone = uinfo['phone'] if uinfo else 'نامشخص'
+            uname = f"@{u.username}" if u.username else 'بدون‌یوزرنیم'
+            
+            msg_to_admin = (
+                f"🎮 **درخواست پورت #{rid}**\n\n"
+                f"🎯 بازی: {game}\n"
+                f"💻 پلتفرم: {platform}\n"
+                f"📝 توضیحات: {details}\n\n"
+                f"👤 کاربر: {name}\n"
+                f"🔗 یوزرنیم: {uname}\n"
+                f"🆔 آیدی: `{u.id}`\n"
+                f"📱 تلفن: {phone}"
+            )
+            
             for aid in {SUPER_ADMIN, PORT_ADMIN}:
                 try:
-                    await context.bot.send_message(aid, f'🎮 درخواست پورت #{rid}\nکاربر: {u.id}\nبازی: {game}\nپلتفرم: {platform}\nتوضیحات: {details}')
+                    if aid:
+                        await context.bot.send_message(aid, msg_to_admin, parse_mode='Markdown')
                 except TelegramError:
                     pass
-            await log_event(context, f'🎮 درخواست پورت #{rid} از کاربر {u.id}: {game} / {platform}'); return
+            return
         if flow == 'custom_pack_game':
             context.user_data.update(custom_pack_game=text, flow='custom_pack_platform')
             await msg.reply_text('پلتفرم موردنظر را وارد کنید (مثلاً PC، PS4، Xbox):'); return
@@ -1381,18 +1509,31 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 with conn.cursor() as cur:
                     cur.execute('INSERT INTO custom_pack_requests(user_id,game,platform,details) VALUES(%s,%s,%s,%s) RETURNING id', (u.id, game, platform, details))
                     rid = cur.fetchone()['id']
-            context.user_data.clear()
-            await msg.reply_text(f'درخواست پک اختصاصی #{rid} ثبت شد. به زودی با شما تماس می‌گیریم.', reply_markup=main_keyboard())
-            with db() as conn:
-                with conn.cursor() as cur:
                     cur.execute('SELECT reg_name, phone FROM users WHERE telegram_id=%s', (u.id,))
                     uinfo = cur.fetchone()
-            user_info = f"{uinfo['reg_name']} | @{u.username or 'بدون‌یوزرنیم'} | {u.id} | تلفن: {uinfo['phone']}"
+            context.user_data.clear()
+            await msg.reply_text(f'درخواست پک اختصاصی #{rid} ثبت شد. به زودی با شما تماس می‌گیریم.', reply_markup=main_keyboard())
+            
+            name = uinfo['reg_name'] if uinfo else 'ناشناس'
+            phone = uinfo['phone'] if uinfo else 'نامشخص'
+            uname = f"@{u.username}" if u.username else 'بدون‌یوزرنیم'
+            
+            msg_to_admin = (
+                f"📦 **درخواست پک اختصاصی #{rid}**\n\n"
+                f"🎯 بازی: {game}\n"
+                f"💻 پلتفرم: {platform}\n"
+                f"📝 توضیحات: {details}\n\n"
+                f"👤 کاربر: {name}\n"
+                f"🔗 یوزرنیم: {uname}\n"
+                f"🆔 آیدی: `{u.id}`\n"
+                f"📱 تلفن: {phone}"
+            )
+            
             try:
-                await context.bot.send_message(SUPER_ADMIN, f'📦 درخواست پک اختصاصی #{rid}\nکاربر: {user_info}\nبازی: {game}\nپلتفرم: {platform}\nتوضیحات: {details}')
+                await context.bot.send_message(SUPER_ADMIN, msg_to_admin, parse_mode='Markdown')
             except TelegramError:
                 pass
-            await log_event(context, f'📦 درخواست پک اختصاصی #{rid} از کاربر {user_info}: {game} / {platform}'); return
+            return
         if flow == 'support':
             file_id = msg.photo[-1].file_id if msg.photo else None
             ftype = 'photo' if file_id else None
@@ -1412,7 +1553,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         await context.bot.send_message(aid, f'پشتیبانی #{sid} از {u.id}\n{body}', reply_markup=kb)
                 except TelegramError:
                     pass
-            await log_event(context, f'💬 پیام پشتیبانی #{sid} از کاربر {u.id}'); return
+            return
         if flow == 'finduser' and is_admin(u.id):
             target = int(text)
             with db() as conn:
@@ -1568,7 +1709,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             audit(u.id, 'port_reply', str(rid), text)
             context.user_data.clear()
             await msg.reply_text('پاسخ ارسال شد.')
-            await log_event(context, f'🎮 پاسخ درخواست پورت #{rid} توسط {u.id}'); return
+            return
         if is_admin(u.id) and text.startswith('/admin'):
             await msg.reply_text('پنل مدیریت:', reply_markup=admin_kb()); return
         await msg.reply_text('از منوی زیر انتخاب کنید یا /start را بزنید.', reply_markup=main_keyboard())
