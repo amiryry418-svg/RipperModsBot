@@ -1,6 +1,6 @@
 """RipperMods Persian Telegram shop. PostgreSQL-backed, deployable on Render."""
 from __future__ import annotations
-import os, logging, threading, time, asyncio, io
+import os, logging, threading, time, asyncio, io, re, requests
 from contextlib import contextmanager
 from decimal import Decimal, InvalidOperation
 from typing import Optional
@@ -103,6 +103,48 @@ def db():
     finally:
         conn.close()
 
+def load_ps4_trainers_from_files():
+    files = {'json': 'json.txt', 'mc4': 'mc4.txt', 'shn': 'shn.txt'}
+    total = 0
+    with db() as conn:
+        with conn.cursor() as cur:
+            for fmt, fname in files.items():
+                if not os.path.exists(fname):
+                    log.warning(f"File {fname} not found, skipping.")
+                    continue
+                with open(fname, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or '=' not in line:
+                            continue
+                        left, right = line.split('=', 1)
+                        left = left.strip()
+                        game_name = right.strip()
+                        m = re.match(r'^(CUSA\d+)_(\d+[.\d]*)[._]', left)
+                        if not m:
+                            continue
+                        cusa_id = m.group(1)
+                        version = m.group(2)
+                        
+                        if fmt == 'mc4':
+                            file_url = f"https://raw.githubusercontent.com/GoldHEN/GoldHEN_Cheat_Repository/main/mc4/{left}"
+                        elif fmt == 'json':
+                            file_url = f"https://raw.githubusercontent.com/GoldHEN/GoldHEN_Cheat_Repository/main/json/{left}"
+                        else:
+                            file_url = f"https://raw.githubusercontent.com/GoldHEN/GoldHEN_Cheat_Repository/main/shn/{left}"
+                        
+                        try:
+                            cur.execute("""
+                                INSERT INTO ps4_trainers(cusa_id, version, file_format, game_name, file_url)
+                                VALUES (%s, %s, %s, %s, %s)
+                                ON CONFLICT (cusa_id, version, file_format) DO NOTHING
+                            """, (cusa_id, version, fmt, game_name, file_url))
+                            if cur.rowcount > 0:
+                                total += 1
+                        except Exception as e:
+                            log.warning(f"Skip {left}: {e}")
+    log.info(f"Loaded {total} PS4 trainers into DB.")
+
 def init_db():
     global _db_initialized
     with _db_lock:
@@ -126,29 +168,36 @@ def init_db():
             """CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_by BIGINT, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())""",
             """CREATE TABLE IF NOT EXISTS admin_audit (id BIGSERIAL PRIMARY KEY, admin_id BIGINT NOT NULL, action TEXT NOT NULL, target TEXT, details TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())""",
             """CREATE TABLE IF NOT EXISTS product_links (id BIGSERIAL PRIMARY KEY, product_id BIGINT NOT NULL REFERENCES products(id) ON DELETE CASCADE, link TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())""",
+            """CREATE TABLE IF NOT EXISTS ps4_trainers (
+                id BIGSERIAL PRIMARY KEY,
+                cusa_id TEXT NOT NULL,
+                version TEXT NOT NULL,
+                file_format TEXT NOT NULL,
+                game_name TEXT NOT NULL,
+                file_url TEXT NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                UNIQUE(cusa_id, version, file_format)
+            )""",
             "CREATE INDEX IF NOT EXISTS idx_orders_user_created ON orders(user_id, created_at DESC)",
             "CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)",
             "CREATE INDEX IF NOT EXISTS idx_topups_status ON topups(status)",
             "CREATE INDEX IF NOT EXISTS idx_nostalgia_status ON nostalgia_requests(status)",
             "CREATE INDEX IF NOT EXISTS idx_support_user_created ON support_messages(user_id, created_at DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_ps4_trainers_cusa ON ps4_trainers(cusa_id)",
         ]
         with db() as conn:
             with conn.cursor() as cur:
                 for sql in schema:
                     cur.execute(sql)
                 
-                # ۱. پاکسازی محصولات و لینک‌های تکراری که قبلاً به وجود آمدند
+                # --- پاکسازی و ایمن‌سازی محصولات ---
                 cur.execute("DELETE FROM product_links WHERE product_id NOT IN (SELECT MIN(id) FROM products GROUP BY name)")
                 cur.execute("DELETE FROM products WHERE id NOT IN (SELECT MIN(id) FROM products GROUP BY name)")
-
-                # ۲. جلوگیری از تکرار در آینده با ایجاد ایندکس یکتا روی نام محصول
                 cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_products_name_unique ON products (name)")
-
-                # ۳. ساخت محصولات (با ON CONFLICT برای جلوگیری از خطا)
                 cur.execute("INSERT INTO products(name,description,price,active) VALUES (%s,%s,%s,true) ON CONFLICT (name) DO NOTHING", ('سوپر پک', 'بسته ویژه RipperMods', 799000))
                 cur.execute("INSERT INTO products(name,description,price,active,upgrade_price) VALUES (%s,%s,%s,true,%s) ON CONFLICT (name) DO NOTHING", ('پک ایرانیزه', 'نسخه ایرانیزه شده GTA V (V2)', 799000, 350000))
                 
-                # ۴. لینک‌های سوپر پک (فقط اگر از قبل لینکی برایش ثبت نشده باشد)
+                # لینک‌های سوپر پک
                 cur.execute("SELECT id FROM products WHERE name='سوپر پک'")
                 prod_row = cur.fetchone()
                 if prod_row:
@@ -185,6 +234,7 @@ def init_db():
                         for link in initial_links:
                             cur.execute("INSERT INTO product_links(product_id, link) VALUES(%s, %s)", (prod_id, link))
                             
+        load_ps4_trainers_from_files()
         _db_initialized = True
 
 def audit(admin_id: int, action: str, target: str = '', details: str = ''):
@@ -217,6 +267,7 @@ def main_keyboard():
         [KeyboardButton('🛍 فروشگاه'), KeyboardButton('💰 کیف پول')],
         [KeyboardButton('📦 سفارش‌های من'), KeyboardButton('👤 حساب کاربری')],
         [KeyboardButton('🎟 کد تخفیف'), KeyboardButton('📖 آموزش نصب')],
+        [KeyboardButton('🎮 ترینرهای PS4')],
         [KeyboardButton('🎮 درخواست پورت'), KeyboardButton('📦 درخواست پک اختصاصی')],
         [KeyboardButton('💬 پشتیبانی'), KeyboardButton('🆓 دریافت بیس رایگان')],
         [KeyboardButton('🔄 دریافت مجدد لینک'), KeyboardButton('🔄 اتصال مجدد / شروع مجدد')]
@@ -532,12 +583,77 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.message.reply_text('🔒 این محصول به زودی اضافه خواهد شد.')
             return
 
-        if data == 'shop:super_pack':
+        if data.startswith('shop:super_pack'):
             await show_product_details(update, context, 'سوپر پک')
             return
 
-        if data == 'shop:iranian_pack':
+        if data.startswith('shop:iranian_pack'):
             await show_product_details(update, context, 'پک ایرانیزه')
+            return
+
+        if data.startswith('trainer:'):
+            _, cusa_full, version, file_format = data.split(':', 3)
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT game_name, file_url FROM ps4_trainers WHERE cusa_id=%s AND version=%s AND file_format=%s", (cusa_full, version, file_format))
+                    row = cur.fetchone()
+            if not row:
+                await q.message.reply_text('❌ این ترینر پیدا نشد.')
+                return
+            await q.message.reply_text('⏳ در حال دانلود و ارسال فایل...')
+            try:
+                res = requests.get(row['file_url'], timeout=20)
+                res.raise_for_status()
+                file_bytes = io.BytesIO(res.content)
+                file_name = f"{cusa_full}_{version}"
+                if file_format == 'json':
+                    file_name += '.json'
+                elif file_format == 'mc4':
+                    file_name += '.mc4.xml'
+                elif file_format == 'shn':
+                    file_name += '.shn'
+                caption = (
+                    f"✅ ترینر **{row['game_name']}**\n"
+                    f"📀 نسخه: {version}\n"
+                    f"📁 فرمت: {file_format}\n\n"
+                    f"📌 **راهنمای نصب:**\n"
+                    f"فایل رو با FTP به مسیر `/user/data/GoldHEN/cheats/{file_format}/` روی کنسول PS4 منتقل کنید.\n"
+                    f"سپس توی منوی GoldHEN (با نگه داشتن دکمه Share) چیت‌ها رو فعال کنید."
+                )
+                await context.bot.send_document(
+                    uid, document=InputFile(file_bytes, filename=file_name),
+                    caption=caption, parse_mode='Markdown'
+                )
+            except Exception as e:
+                log.error(f"Trainer download error: {e}")
+                await q.message.reply_text('❌ متأسفانه دانلود فایل با خطا مواجه شد. لطفاً بعداً دوباره تلاش کنید.')
+            return
+
+        if data == 'trainer_search':
+            context.user_data['flow'] = 'ps4_cusa_search'
+            await q.message.reply_text('لطفاً کد CUSA بازی مورد نظرتون رو بفرستید (فقط عدد، مثلاً 00411):', reply_markup=back_kb())
+            return
+
+        if data == 'trainer_custom':
+            context.user_data['flow'] = 'trainer_custom_request'
+            await q.message.reply_text(
+                'لطفاً نام بازی و کد CUSA رو به این شکل بفرستید:\n\n'
+                '`اسم بازی | CUSA00411`\n\n'
+                'مثال: `GTA V | CUSA00411`',
+                reply_markup=back_kb(), parse_mode='Markdown'
+            )
+            return
+
+        if data == 'trainer_cusa_guide':
+            guide = (
+                "🎮 **راهنمای پیدا کردن CUSA بازی در PS4**\n\n"
+                "برای پیدا کردن Title ID (کد CUSA) بازی، مراحل زیر رو دنبال کنید:\n\n"
+                "1️⃣ وارد GoldHEN بشید.\n"
+                "2️⃣ گزینه دوم: `Cheat Settings` رو انتخاب کنید.\n"
+                "3️⃣ گزینه پنجم: `Show Title ID` رو انتخاب کنید و روی حالت `Last` (آخری) بذارید.\n"
+                "4️⃣ حالا وارد بازی مورد نظرتون بشید. کد CUSA (مثلاً CUSA00411) روی صفحه نمایش داده می‌شه."
+            )
+            await q.message.reply_text(guide, reply_markup=back_kb(), parse_mode='Markdown')
             return
 
         if data.startswith('rlsel:'):
@@ -783,132 +899,64 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         top = cur.fetchone()['n']
                         cur.execute('SELECT count(*) n FROM users')
                         users = cur.fetchone()['n']
-                await q.message.reply_text(f"📊 **آمار کلی**\n\n👥 کاربران: {users}\n🛒 سفارش‌های موفق: {sales['n']}\n💰 درآمد ثبت‌شده: {int(sales['total']):,} تومان\n⏳ سفارش‌های در انتظار: {pending}\n💳 شارژهای در انتظار: {top}", reply_markup=admin_kb(), parse_mode='Markdown')
-            
+                await q.message.reply_text(f"📊 آمار\nکاربران: {users}\nسفارش‌های تأییدشده/تحویل‌شده: {sales['n']}\nدرآمد ثبت‌شده: {int(sales['total']):,} تومان\nسفارش‌های در انتظار: {pending}\nشارژهای در انتظار: {top}", reply_markup=admin_kb())
             elif action in ('topups', 'pendingorders'):
                 table = 'topups' if action == 'topups' else 'orders'
                 with db() as conn:
                     with conn.cursor() as cur:
-                        if table == 'topups':
-                            cur.execute("SELECT t.*, u.reg_name, u.username FROM topups t LEFT JOIN users u ON t.user_id=u.telegram_id WHERE t.status='pending' ORDER BY t.id LIMIT 30")
-                        else:
-                            cur.execute("SELECT o.*, u.reg_name, u.username FROM orders o LEFT JOIN users u ON o.user_id=u.telegram_id WHERE o.status='pending' ORDER BY o.id LIMIT 30")
+                        cur.execute(f"SELECT * FROM {table} WHERE status='pending' ORDER BY id LIMIT 30")
                         rows = cur.fetchall()
                 if not rows:
                     await q.message.reply_text('موردی در انتظار نیست.')
                     return
                 for r in rows:
-                    name = r['reg_name'] or 'ناشناس'
-                    uname = f"@{r['username']}" if r['username'] else 'بدون یوزرنیم'
                     if table == 'topups':
-                        kb = InlineKeyboardMarkup([[InlineKeyboardButton('✅ تأیید شارژ', callback_data=f"topup:{r['id']}:approve"), InlineKeyboardButton('❌ رد شارژ', callback_data=f"topup:{r['id']}:reject")]])
-                        txt = f"💳 **شارژ #{r['id']}**\n👤 {name} ({uname})\n🆔 `{r['user_id']}`\n💵 {int(r['amount']):,} تومان"
-                        await q.message.reply_photo(r['receipt_file_id'], caption=txt, reply_markup=kb, parse_mode='Markdown')
+                        kb = InlineKeyboardMarkup([[InlineKeyboardButton('تأیید شارژ', callback_data=f"topup:{r['id']}:approve"), InlineKeyboardButton('رد شارژ', callback_data=f"topup:{r['id']}:reject")]])
+                        await q.message.reply_photo(r['receipt_file_id'], caption=f"شارژ #{r['id']} | کاربر {r['user_id']} | {int(r['amount']):,} تومان", reply_markup=kb)
                     else:
-                        kb = InlineKeyboardMarkup([[InlineKeyboardButton('✅ تأیید و تحویل', callback_data=f"orderreview:{r['id']}:approve"), InlineKeyboardButton('❌ رد سفارش', callback_data=f"orderreview:{r['id']}:reject")]])
-                        txt = f"🛒 **سفارش #{r['id']}**\n👤 {name} ({uname})\n🆔 `{r['user_id']}`\n📦 {r['product_name']}\n💵 {int(r['amount']):,} تومان"
+                        kb = InlineKeyboardMarkup([[InlineKeyboardButton('تأیید و تحویل', callback_data=f"orderreview:{r['id']}:approve"), InlineKeyboardButton('رد سفارش', callback_data=f"orderreview:{r['id']}:reject")]])
+                        txt = f"سفارش #{r['id']} | کاربر {r['user_id']} | {r['product_name']} | {int(r['amount']):,} تومان"
                         if r.get('receipt_file_id'):
-                            await q.message.reply_photo(r['receipt_file_id'], caption=txt, reply_markup=kb, parse_mode='Markdown')
+                            await q.message.reply_photo(r['receipt_file_id'], caption=txt, reply_markup=kb)
                         else:
-                            await q.message.reply_text(txt, reply_markup=kb, parse_mode='Markdown')
-            
+                            await q.message.reply_text(txt, reply_markup=kb)
             elif action == 'coupon':
                 context.user_data['flow'] = 'adm_coupon_code'
                 context.user_data['adm_coupon_type'] = 'percent'
                 await q.message.reply_text('مرحله ۱ از ۴:\nلطفاً یک نام (کد) برای تخفیف وارد کنید (مثلاً: OFF20):')
-            
             elif action == 'finduser':
                 context.user_data['flow'] = 'finduser'
                 await q.message.reply_text('Telegram ID کاربر را وارد کنید:')
-            
             elif action == 'wallet':
                 context.user_data['flow'] = 'adm_wallet_id'
                 await q.message.reply_text('مرحله ۱ از ۳:\nآیدی عددی (Telegram ID) کاربر را وارد کنید:')
-            
             elif action == 'settings':
                 await q.message.reply_text('تنظیمات از Environment Variables خوانده می‌شود. برای تغییر، CARD_NUMBER یا CARD_HOLDER را در Render تغییر دهید.')
-            
             elif action == 'orders':
                 with db() as conn:
                     with conn.cursor() as cur:
-                        cur.execute('''
-                            SELECT o.id, o.user_id, o.product_name, o.amount, o.status, u.reg_name, u.username 
-                            FROM orders o LEFT JOIN users u ON o.user_id = u.telegram_id 
-                            ORDER BY o.id DESC LIMIT 15
-                        ''')
+                        cur.execute('SELECT id,user_id,product_name,amount,status FROM orders ORDER BY id DESC LIMIT 20')
                         rows = cur.fetchall()
-                
-                if not rows:
-                    await q.message.reply_text('سفارشی ثبت نشده است.')
-                    return
-
-                status_map = {'pending': '⏳ در انتظار', 'approved': '✅ تایید شده', 'delivered': '📦 تحویل داده شد', 'rejected': '❌ رد شده', 'cancelled': '🚫 لغو شده'}
-                msgs = []
-                for r in rows:
-                    name = r['reg_name'] or 'ناشناس'
-                    uname = f"@{r['username']}" if r['username'] else 'بدون یوزرنیم'
-                    st_fa = status_map.get(r['status'], r['status'])
-                    msgs.append(f"🛒 **سفارش #{r['id']}**\n👤 کاربر: {name} ({uname})\n🆔 آیدی: `{r['user_id']}`\n📦 محصول: {r['product_name']}\n💵 مبلغ: {int(r['amount']):,} تومان\n🔹 وضعیت: {st_fa}")
-                
-                final_text = "\n\n➖➖➖➖➖➖➖➖\n\n".join(msgs)
-                if len(final_text) > 4000:
-                    await q.message.reply_text(final_text[:4000] + "\n\n... (ادامه در پیام بعدی)", parse_mode='Markdown')
-                    await q.message.reply_text(final_text[4000:], parse_mode='Markdown')
-                else:
-                    await q.message.reply_text(final_text, parse_mode='Markdown')
-            
+                await q.message.reply_text('\n'.join([f"#{r['id']} | {r['user_id']} | {r['product_name']} | {int(r['amount']):,} | {r['status']}" for r in rows]) or 'سفارشی نیست.')
             elif action == 'ports':
                 with db() as conn:
                     with conn.cursor() as cur:
-                        cur.execute('''
-                            SELECT n.*, u.reg_name, u.username 
-                            FROM nostalgia_requests n LEFT JOIN users u ON n.user_id = u.telegram_id 
-                            ORDER BY n.id DESC LIMIT 15
-                        ''')
+                        cur.execute('SELECT * FROM nostalgia_requests ORDER BY id DESC LIMIT 20')
                         rows = cur.fetchall()
-                if not rows:
-                    await q.message.reply_text('درخواست پورتی ثبت نشده است.')
-                    return
-                
-                status_map = {'new': '🆕 جدید', 'reviewing': '⏳ در حال بررسی', 'done': '✅ انجام شد'}
                 for r in rows:
-                    name = r['reg_name'] or 'ناشناس'
-                    uname = f"@{r['username']}" if r['username'] else 'بدون یوزرنیم'
-                    st_fa = status_map.get(r['status'], r['status'])
-                    txt = f"🎮 **درخواست پورت #{r['id']}**\n👤 {name} ({uname})\n🆔 `{r['user_id']}`\n🎯 بازی: {r['game']}\n💻 پلتفرم: {r['platform']}\n📝 توضیحات: {r['details']}\n🔹 وضعیت: {st_fa}"
-                    kb = InlineKeyboardMarkup([[InlineKeyboardButton('⏳ در حال بررسی', callback_data=f"portstatus:{r['id']}:reviewing"), InlineKeyboardButton('✅ انجام شد', callback_data=f"portstatus:{r['id']}:done"), InlineKeyboardButton('💬 پاسخ', callback_data=f"portreply:{r['id']}")]])
-                    await q.message.reply_text(txt, reply_markup=kb, parse_mode='Markdown')
-            
+                    await q.message.reply_text(f"درخواست پورت #{r['id']}\nکاربر: {r['user_id']}\nبازی: {r['game']}\nپلتفرم: {r['platform']}\nتوضیحات: {r['details']}\nوضعیت: {r['status']}", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('در حال بررسی', callback_data=f"portstatus:{r['id']}:reviewing"), InlineKeyboardButton('انجام شد', callback_data=f"portstatus:{r['id']}:done"), InlineKeyboardButton('پاسخ', callback_data=f"portreply:{r['id']}")]]))
             elif action == 'support':
                 context.user_data['flow'] = 'support_reply'
                 await q.message.reply_text('برای پاسخ وارد کنید: TelegramID,متن پاسخ')
-            
             elif action == 'broadcast':
                 context.user_data['flow'] = 'broadcast'
                 await q.message.reply_text('متن پیام همگانی را وارد کنید:')
-            
             elif action == 'audit':
                 with db() as conn:
                     with conn.cursor() as cur:
-                        cur.execute('SELECT * FROM admin_audit ORDER BY id DESC LIMIT 15')
+                        cur.execute('SELECT * FROM admin_audit ORDER BY id DESC LIMIT 20')
                         rows = cur.fetchall()
-                if not rows:
-                    await q.message.reply_text('سابقه‌ای ثبت نشده است.')
-                    return
-                
-                action_map = {
-                    'topup_review': 'بررسی شارژ', 'order_review': 'بررسی سفارش', 'price_updated': 'تغییر قیمت',
-                    'coupon_created': 'ساخت تخفیف', 'support_reply': 'پاسخ پشتیبانی', 'port_status': 'تغییر وضعیت پورت',
-                    'port_reply': 'پاسخ پورت', 'wallet_adjustment': 'تغییر موجودی', 'links_updated': 'تغییر لینک'
-                }
-                msgs = []
-                for r in rows:
-                    act_fa = action_map.get(r['action'], r['action'])
-                    msgs.append(f"📅 {r['created_at']:%Y-%m-%d %H:%M}\n👤 مدیر: `{r['admin_id']}`\n⚡️ عملیات: {act_fa}\n🎯 هدف: {r['target']}\n📝 جزئیات: {r['details']}")
-                
-                final_text = "\n\n➖➖➖➖➖➖➖➖\n\n".join(msgs)
-                await q.message.reply_text(final_text, parse_mode='Markdown')
-            
+                await q.message.reply_text('\n'.join([f"{r['created_at']:%m-%d %H:%M} | مدیر {r['admin_id']} | {r['action']} | {r['target']} | {r['details']}" for r in rows]) or 'سابقه‌ای ثبت نشده است.')
             elif action == 'edit_price':
                 with db() as conn:
                     with conn.cursor() as cur:
@@ -916,7 +964,6 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         rows = cur.fetchall()
                 kb = InlineKeyboardMarkup([[InlineKeyboardButton(r['name'], callback_data=f"chg_price:{r['id']}")] for r in rows])
                 await q.message.reply_text('محصولی که می‌خواهید قیمت آن را تغییر دهید انتخاب کنید:', reply_markup=kb)
-            
             elif action == 'edit_links':
                 with db() as conn:
                     with conn.cursor() as cur:
@@ -924,7 +971,6 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         rows = cur.fetchall()
                 kb = InlineKeyboardMarkup([[InlineKeyboardButton(r['name'], callback_data=f"chg_links:{r['id']}")] for r in rows])
                 await q.message.reply_text('محصولی که می‌خواهید لینک‌های آن را تغییر دهید انتخاب کنید:', reply_markup=kb)
-            
             return
 
         if data.startswith('chg_price:'):
@@ -1138,6 +1184,15 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text == '🆓 دریافت بیس رایگان':
         await msg.reply_text(f'🎮 **لینک دانلود فایل بیس رایگان:**\n\n{BASE_LINK}\n\n⚠️ لطفاً توجه داشته باشید که برای استفاده از مودها، حتماً باید نسخه بازی شما با این نسخه بیس یکی باشد.', reply_markup=main_keyboard(), disable_web_page_preview=True)
         return
+    if text == '🎮 ترینرهای PS4':
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton('🔍 جستجوی ترینر', callback_data='trainer_search')],
+            [InlineKeyboardButton('🛠 ساخت ترینر اختصاصی', callback_data='trainer_custom')],
+            [InlineKeyboardButton('📖 راهنمای مشاهده CUSA', callback_data='trainer_cusa_guide')],
+            [InlineKeyboardButton('💳 حمایت مالی', url='https://daramet.com/Amir3243')]
+        ])
+        await msg.reply_text('🎮 **بخش ترینرهای PS4**\nلطفاً یکی از گزینه‌های زیر رو انتخاب کنید:', reply_markup=kb, parse_mode='Markdown')
+        return
     if text == '🔄 دریافت مجدد لینک':
         with db() as conn:
             with conn.cursor() as cur:
@@ -1150,6 +1205,54 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text('پنل مدیریت:', reply_markup=admin_kb()); return
         
     try:
+        if flow == 'ps4_cusa_search':
+            raw_cusa = text.strip().upper()
+            cusa_num = raw_cusa[4:] if raw_cusa.startswith('CUSA') else raw_cusa
+            cusa_full = f"CUSA{cusa_num}"
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT game_name, version, file_format FROM ps4_trainers WHERE cusa_id = %s ORDER BY version DESC", (cusa_full,))
+                    rows = cur.fetchall()
+            context.user_data['flow'] = None
+            if not rows:
+                await msg.reply_text(f'❌ برای کد {cusa_full} هیچ ترینری پیدا نشد.\nلطفاً کد رو بررسی کنید یا با پشتیبانی تماس بگیرید.', reply_markup=main_keyboard())
+                return
+            game_name = rows[0]['game_name']
+            kb_buttons = []
+            for r in rows:
+                btn_text = f"{r['version']} - {r['file_format']}"
+                cb_data = f"trainer:{cusa_full}:{r['version']}:{r['file_format']}"
+                kb_buttons.append([InlineKeyboardButton(btn_text, callback_data=cb_data)])
+            kb = InlineKeyboardMarkup(kb_buttons)
+            await msg.reply_text(
+                f"🎮 ترینرهای موجود برای: **{game_name}** ({cusa_full})\nلطفاً نسخه مورد نظر خودتون رو انتخاب کنید:",
+                reply_markup=kb, parse_mode='Markdown'
+            )
+            return
+
+        if flow == 'trainer_custom_request':
+            parts = text.split('|')
+            if len(parts) != 2:
+                await msg.reply_text('❌ فرمت اشتباه است. لطفاً به شکل `اسم بازی | CUSA00411` بفرستید.')
+                return
+            game_name = parts[0].strip()
+            cusa_id = parts[1].strip()
+            context.user_data['flow'] = None
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute('SELECT reg_name, phone FROM users WHERE telegram_id=%s', (u.id,))
+                    uinfo = cur.fetchone()
+            user_info = f"{uinfo['reg_name'] if uinfo else 'ناشناس'} | @{u.username or 'بدون‌یوزرنیم'} | {u.id}"
+            admin3 = ADMIN3
+            try:
+                if admin3:
+                    await context.bot.send_message(admin3, f'🛠 **درخواست ساخت ترینر اختصاصی**\n\nبازی: {game_name}\nCUSA: {cusa_id}\n\nکاربر: {user_info}')
+            except TelegramError:
+                pass
+            await log_event(context, f'🛠 درخواست ترینر اختصاصی | بازی: {game_name} | CUSA: {cusa_id} | کاربر: {user_info}')
+            await msg.reply_text('✅ درخواست شما برای ساخت ترینر اختصاصی ثبت شد. به زودی با شما تماس می‌گیریم.', reply_markup=main_keyboard())
+            return
+
         if flow == 'topup_amount':
             amount = Decimal(text)
             if amount <= 0 or amount > Decimal('1000000000'):
