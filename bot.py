@@ -783,64 +783,132 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         top = cur.fetchone()['n']
                         cur.execute('SELECT count(*) n FROM users')
                         users = cur.fetchone()['n']
-                await q.message.reply_text(f"📊 آمار\nکاربران: {users}\nسفارش‌های تأییدشده/تحویل‌شده: {sales['n']}\nدرآمد ثبت‌شده: {int(sales['total']):,} تومان\nسفارش‌های در انتظار: {pending}\nشارژهای در انتظار: {top}", reply_markup=admin_kb())
+                await q.message.reply_text(f"📊 **آمار کلی**\n\n👥 کاربران: {users}\n🛒 سفارش‌های موفق: {sales['n']}\n💰 درآمد ثبت‌شده: {int(sales['total']):,} تومان\n⏳ سفارش‌های در انتظار: {pending}\n💳 شارژهای در انتظار: {top}", reply_markup=admin_kb(), parse_mode='Markdown')
+            
             elif action in ('topups', 'pendingorders'):
                 table = 'topups' if action == 'topups' else 'orders'
                 with db() as conn:
                     with conn.cursor() as cur:
-                        cur.execute(f"SELECT * FROM {table} WHERE status='pending' ORDER BY id LIMIT 30")
+                        if table == 'topups':
+                            cur.execute("SELECT t.*, u.reg_name, u.username FROM topups t LEFT JOIN users u ON t.user_id=u.telegram_id WHERE t.status='pending' ORDER BY t.id LIMIT 30")
+                        else:
+                            cur.execute("SELECT o.*, u.reg_name, u.username FROM orders o LEFT JOIN users u ON o.user_id=u.telegram_id WHERE o.status='pending' ORDER BY o.id LIMIT 30")
                         rows = cur.fetchall()
                 if not rows:
                     await q.message.reply_text('موردی در انتظار نیست.')
                     return
                 for r in rows:
+                    name = r['reg_name'] or 'ناشناس'
+                    uname = f"@{r['username']}" if r['username'] else 'بدون یوزرنیم'
                     if table == 'topups':
-                        kb = InlineKeyboardMarkup([[InlineKeyboardButton('تأیید شارژ', callback_data=f"topup:{r['id']}:approve"), InlineKeyboardButton('رد شارژ', callback_data=f"topup:{r['id']}:reject")]])
-                        await q.message.reply_photo(r['receipt_file_id'], caption=f"شارژ #{r['id']} | کاربر {r['user_id']} | {int(r['amount']):,} تومان", reply_markup=kb)
+                        kb = InlineKeyboardMarkup([[InlineKeyboardButton('✅ تأیید شارژ', callback_data=f"topup:{r['id']}:approve"), InlineKeyboardButton('❌ رد شارژ', callback_data=f"topup:{r['id']}:reject")]])
+                        txt = f"💳 **شارژ #{r['id']}**\n👤 {name} ({uname})\n🆔 `{r['user_id']}`\n💵 {int(r['amount']):,} تومان"
+                        await q.message.reply_photo(r['receipt_file_id'], caption=txt, reply_markup=kb, parse_mode='Markdown')
                     else:
-                        kb = InlineKeyboardMarkup([[InlineKeyboardButton('تأیید و تحویل', callback_data=f"orderreview:{r['id']}:approve"), InlineKeyboardButton('رد سفارش', callback_data=f"orderreview:{r['id']}:reject")]])
-                        txt = f"سفارش #{r['id']} | کاربر {r['user_id']} | {r['product_name']} | {int(r['amount']):,} تومان"
+                        kb = InlineKeyboardMarkup([[InlineKeyboardButton('✅ تأیید و تحویل', callback_data=f"orderreview:{r['id']}:approve"), InlineKeyboardButton('❌ رد سفارش', callback_data=f"orderreview:{r['id']}:reject")]])
+                        txt = f"🛒 **سفارش #{r['id']}**\n👤 {name} ({uname})\n🆔 `{r['user_id']}`\n📦 {r['product_name']}\n💵 {int(r['amount']):,} تومان"
                         if r.get('receipt_file_id'):
-                            await q.message.reply_photo(r['receipt_file_id'], caption=txt, reply_markup=kb)
+                            await q.message.reply_photo(r['receipt_file_id'], caption=txt, reply_markup=kb, parse_mode='Markdown')
                         else:
-                            await q.message.reply_text(txt, reply_markup=kb)
+                            await q.message.reply_text(txt, reply_markup=kb, parse_mode='Markdown')
+            
             elif action == 'coupon':
                 context.user_data['flow'] = 'adm_coupon_code'
                 context.user_data['adm_coupon_type'] = 'percent'
                 await q.message.reply_text('مرحله ۱ از ۴:\nلطفاً یک نام (کد) برای تخفیف وارد کنید (مثلاً: OFF20):')
+            
             elif action == 'finduser':
                 context.user_data['flow'] = 'finduser'
                 await q.message.reply_text('Telegram ID کاربر را وارد کنید:')
+            
             elif action == 'wallet':
                 context.user_data['flow'] = 'adm_wallet_id'
                 await q.message.reply_text('مرحله ۱ از ۳:\nآیدی عددی (Telegram ID) کاربر را وارد کنید:')
+            
             elif action == 'settings':
                 await q.message.reply_text('تنظیمات از Environment Variables خوانده می‌شود. برای تغییر، CARD_NUMBER یا CARD_HOLDER را در Render تغییر دهید.')
+            
             elif action == 'orders':
                 with db() as conn:
                     with conn.cursor() as cur:
-                        cur.execute('SELECT id,user_id,product_name,amount,status FROM orders ORDER BY id DESC LIMIT 20')
+                        cur.execute('''
+                            SELECT o.id, o.user_id, o.product_name, o.amount, o.status, u.reg_name, u.username 
+                            FROM orders o LEFT JOIN users u ON o.user_id = u.telegram_id 
+                            ORDER BY o.id DESC LIMIT 15
+                        ''')
                         rows = cur.fetchall()
-                await q.message.reply_text('\n'.join([f"#{r['id']} | {r['user_id']} | {r['product_name']} | {int(r['amount']):,} | {r['status']}" for r in rows]) or 'سفارشی نیست.')
+                
+                if not rows:
+                    await q.message.reply_text('سفارشی ثبت نشده است.')
+                    return
+
+                status_map = {'pending': '⏳ در انتظار', 'approved': '✅ تایید شده', 'delivered': '📦 تحویل داده شد', 'rejected': '❌ رد شده', 'cancelled': '🚫 لغو شده'}
+                msgs = []
+                for r in rows:
+                    name = r['reg_name'] or 'ناشناس'
+                    uname = f"@{r['username']}" if r['username'] else 'بدون یوزرنیم'
+                    st_fa = status_map.get(r['status'], r['status'])
+                    msgs.append(f"🛒 **سفارش #{r['id']}**\n👤 کاربر: {name} ({uname})\n🆔 آیدی: `{r['user_id']}`\n📦 محصول: {r['product_name']}\n💵 مبلغ: {int(r['amount']):,} تومان\n🔹 وضعیت: {st_fa}")
+                
+                final_text = "\n\n➖➖➖➖➖➖➖➖\n\n".join(msgs)
+                if len(final_text) > 4000:
+                    await q.message.reply_text(final_text[:4000] + "\n\n... (ادامه در پیام بعدی)", parse_mode='Markdown')
+                    await q.message.reply_text(final_text[4000:], parse_mode='Markdown')
+                else:
+                    await q.message.reply_text(final_text, parse_mode='Markdown')
+            
             elif action == 'ports':
                 with db() as conn:
                     with conn.cursor() as cur:
-                        cur.execute('SELECT * FROM nostalgia_requests ORDER BY id DESC LIMIT 20')
+                        cur.execute('''
+                            SELECT n.*, u.reg_name, u.username 
+                            FROM nostalgia_requests n LEFT JOIN users u ON n.user_id = u.telegram_id 
+                            ORDER BY n.id DESC LIMIT 15
+                        ''')
                         rows = cur.fetchall()
+                if not rows:
+                    await q.message.reply_text('درخواست پورتی ثبت نشده است.')
+                    return
+                
+                status_map = {'new': '🆕 جدید', 'reviewing': '⏳ در حال بررسی', 'done': '✅ انجام شد'}
                 for r in rows:
-                    await q.message.reply_text(f"درخواست پورت #{r['id']}\nکاربر: {r['user_id']}\nبازی: {r['game']}\nپلتفرم: {r['platform']}\nتوضیحات: {r['details']}\nوضعیت: {r['status']}", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('در حال بررسی', callback_data=f"portstatus:{r['id']}:reviewing"), InlineKeyboardButton('انجام شد', callback_data=f"portstatus:{r['id']}:done"), InlineKeyboardButton('پاسخ', callback_data=f"portreply:{r['id']}")]]))
+                    name = r['reg_name'] or 'ناشناس'
+                    uname = f"@{r['username']}" if r['username'] else 'بدون یوزرنیم'
+                    st_fa = status_map.get(r['status'], r['status'])
+                    txt = f"🎮 **درخواست پورت #{r['id']}**\n👤 {name} ({uname})\n🆔 `{r['user_id']}`\n🎯 بازی: {r['game']}\n💻 پلتفرم: {r['platform']}\n📝 توضیحات: {r['details']}\n🔹 وضعیت: {st_fa}"
+                    kb = InlineKeyboardMarkup([[InlineKeyboardButton('⏳ در حال بررسی', callback_data=f"portstatus:{r['id']}:reviewing"), InlineKeyboardButton('✅ انجام شد', callback_data=f"portstatus:{r['id']}:done"), InlineKeyboardButton('💬 پاسخ', callback_data=f"portreply:{r['id']}")]])
+                    await q.message.reply_text(txt, reply_markup=kb, parse_mode='Markdown')
+            
             elif action == 'support':
                 context.user_data['flow'] = 'support_reply'
                 await q.message.reply_text('برای پاسخ وارد کنید: TelegramID,متن پاسخ')
+            
             elif action == 'broadcast':
                 context.user_data['flow'] = 'broadcast'
                 await q.message.reply_text('متن پیام همگانی را وارد کنید:')
+            
             elif action == 'audit':
                 with db() as conn:
                     with conn.cursor() as cur:
-                        cur.execute('SELECT * FROM admin_audit ORDER BY id DESC LIMIT 20')
+                        cur.execute('SELECT * FROM admin_audit ORDER BY id DESC LIMIT 15')
                         rows = cur.fetchall()
-                await q.message.reply_text('\n'.join([f"{r['created_at']:%m-%d %H:%M} | مدیر {r['admin_id']} | {r['action']} | {r['target']} | {r['details']}" for r in rows]) or 'سابقه‌ای ثبت نشده است.')
+                if not rows:
+                    await q.message.reply_text('سابقه‌ای ثبت نشده است.')
+                    return
+                
+                action_map = {
+                    'topup_review': 'بررسی شارژ', 'order_review': 'بررسی سفارش', 'price_updated': 'تغییر قیمت',
+                    'coupon_created': 'ساخت تخفیف', 'support_reply': 'پاسخ پشتیبانی', 'port_status': 'تغییر وضعیت پورت',
+                    'port_reply': 'پاسخ پورت', 'wallet_adjustment': 'تغییر موجودی', 'links_updated': 'تغییر لینک'
+                }
+                msgs = []
+                for r in rows:
+                    act_fa = action_map.get(r['action'], r['action'])
+                    msgs.append(f"📅 {r['created_at']:%Y-%m-%d %H:%M}\n👤 مدیر: `{r['admin_id']}`\n⚡️ عملیات: {act_fa}\n🎯 هدف: {r['target']}\n📝 جزئیات: {r['details']}")
+                
+                final_text = "\n\n➖➖➖➖➖➖➖➖\n\n".join(msgs)
+                await q.message.reply_text(final_text, parse_mode='Markdown')
+            
             elif action == 'edit_price':
                 with db() as conn:
                     with conn.cursor() as cur:
@@ -848,6 +916,7 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         rows = cur.fetchall()
                 kb = InlineKeyboardMarkup([[InlineKeyboardButton(r['name'], callback_data=f"chg_price:{r['id']}")] for r in rows])
                 await q.message.reply_text('محصولی که می‌خواهید قیمت آن را تغییر دهید انتخاب کنید:', reply_markup=kb)
+            
             elif action == 'edit_links':
                 with db() as conn:
                     with conn.cursor() as cur:
@@ -855,6 +924,7 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         rows = cur.fetchall()
                 kb = InlineKeyboardMarkup([[InlineKeyboardButton(r['name'], callback_data=f"chg_links:{r['id']}")] for r in rows])
                 await q.message.reply_text('محصولی که می‌خواهید لینک‌های آن را تغییر دهید انتخاب کنید:', reply_markup=kb)
+            
             return
 
         if data.startswith('chg_price:'):
