@@ -136,6 +136,11 @@ def portal():
     try: return render_template('portal.html')
     except Exception: return "فایل portal.html پیدا نشد", 500
 
+@app.get('/dashboard')
+def dashboard():
+    try: return render_template('portal.html')
+    except Exception: return "فایل portal.html پیدا نشد", 500
+
 @contextmanager
 def db():
     if not DATABASE_URL: raise RuntimeError('DATABASE_URL تنظیم نشده است.')
@@ -345,59 +350,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else: await update.effective_message.reply_text(welcome, reply_markup=main_keyboard())
     except TelegramError: await update.effective_message.reply_text(welcome, reply_markup=main_keyboard())
     if is_admin(u.id): await update.effective_message.reply_text('پنل مدیریت:', reply_markup=admin_kb())
-
-async def show_shop(update, context):
-    kb = InlineKeyboardMarkup([[InlineKeyboardButton('🛍 سوپر پک', callback_data='shop:super_pack')], [InlineKeyboardButton('📦 پک ایرانیزه', callback_data='shop:iranian_pack')]])
-    await update.effective_message.reply_text('لطفاً یکی از پک‌های زیر را انتخاب کنید:', reply_markup=kb)
-
-async def show_product_details(update, context, p_name):
-    with db() as conn:
-        with conn.cursor() as cur:
-            cur.execute('SELECT * FROM products WHERE name=%s AND active=true', (p_name,))
-            p = cur.fetchone()
-    if not p:
-        await update.effective_message.reply_text('محصول یافت نشد یا غیرفعال است.', reply_markup=main_keyboard())
-        return
-
-    base_price = Decimal(p['price'])
-    final_price = base_price
-    
-    coupon_code = context.user_data.get('coupon_code')
-    if coupon_code:
-        with db() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT * FROM coupons WHERE code=%s AND active=true AND (expires_at IS NULL OR expires_at>now())", (coupon_code.upper(),))
-                cp = cur.fetchone()
-        if cp and cp['discount_type'] == 'percent':
-            discount = base_price * (cp['value'] / Decimal(100))
-            final_price = base_price - discount
-            final_price = max(Decimal('0'), final_price).quantize(Decimal('0.01'))
-
-    text = f"🛍 {p['name']}\n{p['description']}\n"
-    if coupon_code and final_price < base_price:
-        text += f"❌ قیمت اصلی: {int(base_price):,} تومان\n"
-        text += f"✅ قیمت با تخفیف ({coupon_code}): {int(final_price):,} تومان"
-    else:
-        text += f"💵 قیمت: {int(final_price):,} تومان"
-        
-    if p['name'] == 'پک ایرانیزه':
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton('خرید با کیف پول', callback_data=f"buyw:{p['id']}"), InlineKeyboardButton('پرداخت کارت‌به‌کارت', callback_data=f"buyc:{p['id']}")],
-            [InlineKeyboardButton('🚀 ارتقا از V1', callback_data=f"upgrade:{p['id']}")],
-            [InlineKeyboardButton('🎟 وارد کردن کد تخفیف', callback_data=f"appcpn:{p['id']}")]
-        ])
-        photo = 'https://s31.uupload.ir/files/rippermodsgtavv100/Amir/4/IMG_20261021_205807_285.jpg'
-    else:
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton('خرید با کیف پول', callback_data=f"buyw:{p['id']}"), InlineKeyboardButton('پرداخت کارت‌به‌کارت', callback_data=f"buyc:{p['id']}")],
-            [InlineKeyboardButton('🎟 وارد کردن کد تخفیف', callback_data=f"appcpn:{p['id']}")]
-        ])
-        photo = 'https://s50.uupload.ir/files/rippermodsgtavv100/Amir/IMG_20261021_205811_651.jpg' if p['name'] == 'سوپر پک' else ''
-        
-    try:
-        if photo: await update.effective_message.reply_photo(photo, caption=text, reply_markup=kb)
-        else: await update.effective_message.reply_text(text, reply_markup=kb)
-    except TelegramError: await update.effective_message.reply_text(text, reply_markup=kb)
 
 async def send_portal_access(context: ContextTypes.DEFAULT_TYPE, user_id: int, order_id: int, product_name: str, tracking_code: str):
     if not BASE_URL: return
