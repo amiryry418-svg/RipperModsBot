@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """RipperMods Persian Telegram shop + Customer Portal. PostgreSQL-backed, deployable on Render."""
 from __future__ import annotations
 import os, logging, threading, time, asyncio, io, re, random, string, secrets, requests
