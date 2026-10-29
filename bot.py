@@ -1,13 +1,14 @@
-"""RipperMods Persian Telegram shop. PostgreSQL-backed, deployable on Render."""
+"""RipperMods Persian Telegram shop + Customer Portal. PostgreSQL-backed, deployable on Render."""
 from __future__ import annotations
-import os, logging, threading, time, asyncio, io, re, random, string, requests
+import os, logging, threading, time, asyncio, io, re, random, string, secrets, requests
 from contextlib import contextmanager
+from datetime import datetime, timezone, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Optional
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request, render_template, send_from_directory
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, InputFile
 from telegram.error import TelegramError
 from telegram.ext import (Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters)
@@ -19,10 +20,12 @@ except ImportError:
 
 logging.basicConfig(level=os.getenv('LOG_LEVEL','INFO'), format='%(asctime)s %(levelname)s %(name)s: %(message)s')
 log = logging.getLogger('rippermods')
-app = Flask(__name__)
+
+app = Flask(__name__, template_folder='templates', static_folder='static')
 
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 DATABASE_URL = os.environ.get('DATABASE_URL')
+BASE_URL = (os.environ.get('BASE_URL') or '').rstrip('/')
 LOG_CHANNEL_ID = os.environ.get('LOG_CHANNEL_ID', '-1004308422504')
 try:
     LOG_CHANNEL_ID = int(LOG_CHANNEL_ID) if LOG_CHANNEL_ID else None
@@ -59,7 +62,6 @@ def _optional_int_env(name: str) -> Optional[int]:
 
 PORT_ADMIN = _optional_int_env('PORT_ADMIN')
 ADMIN3 = _optional_int_env('ADMIN3')
-DELETE_DELIVERY = os.getenv('DELETE_DELIVERY_AFTER_30_SECONDS', 'true').lower() in ('1', 'true', 'yes')
 
 BASE_LINK = "https://dl2.megadl.click/PS4-Hacked/GTAV/CUSA00419/BASE/"
 
@@ -70,7 +72,7 @@ INSTALL_TUTORIAL = """
 
 1️⃣ **بررسی نسخه:** ابتدا از نسخه بیس بازی خود اطمینان حاصل کنید که با بیس پیشنهادی ما یکی باشد.
 2️⃣ **دانلود:** برنامه (WinRAR) را داشته باشید. فایل‌های مربوط به ماد را دانلود کنید.
-3️⃣ **استخراج:** همه فایل‌ها را در یک پوشه قرار دهید، سپس روی پارت ۱ کلیک راست کرده و `Extract Here` را انتخاب کنید (نیازی به کار با پارت‌های دیگر نیست، خودش اتوماتیک تشخیص می‌دهد). منتظر بمانید تا فایل اکسترکت شود.
+3️⃣ **استخراج:** همه فایل‌ها را در یک پوشه قرار دهید، سپس روی پارت ۱ کلیک راست کرده و `Extract Here` را انتخاب کنید.
 4️⃣ **انتقال:** وقتی فایل واحد `.pkg` ساخته شد، یک هارد اکسترنال یا فلش حداقل ۶۴ گیگ با فرمت `exFAT` به کامپیوتر وصل کنید و فایل را داخل آن کپی کنید.
 5️⃣ **نصب روی کنسول:** فلش را به کنسول وصل کنید. وارد مسیر `Debug Settings / Package Installer` شوید و فایل را نصب کنید.
 """
@@ -80,9 +82,11 @@ REDOWNLOAD_PRICE = Decimal('150000')
 _db_initialized = False
 _db_lock = threading.Lock()
 
+# متغیر گلوبال برای دسترسی به Application از توی API
+_bot_application: Optional[Application] = None
+
 
 def _fa_dt(dt) -> str:
-    """Format datetime as Jalali (Shamsi) date or fallback."""
     if dt is None:
         return '—'
     try:
@@ -98,12 +102,10 @@ def _fa_dt(dt) -> str:
 
 
 def _gen_tracking_code(prefix: str = 'RM') -> str:
-    """Generate a random tracking code like RM-4827."""
     return f"{prefix}-{random.randint(1000, 9999)}"
 
 
 def _unique_tracking_code(cur, table: str) -> str:
-    """Generate a unique tracking code for given table (orders/topups)."""
     for _ in range(20):
         code = _gen_tracking_code()
         cur.execute(f"SELECT 1 FROM {table} WHERE tracking_code=%s", (code,))
@@ -112,12 +114,33 @@ def _unique_tracking_code(cur, table: str) -> str:
     return f"RM-{int(time.time()) % 9000 + 1000}"
 
 
-def _get_decimal_env(name: str, default: str = '0') -> Decimal:
-    raw = (os.getenv(name, default) or default).strip()
-    try:
-        return Decimal(raw)
-    except InvalidOperation:
-        return Decimal(default)
+def _gen_connect_code() -> str:
+    """کد اتصال ۶ رقمی"""
+    return f"{random.randint(100000, 999999)}"
+
+
+def _gen_session_token() -> str:
+    """توکن نشست ۳۲ کاراکتری"""
+    return secrets.token_urlsafe(24)
+
+
+def _create_connect_code(cur, user_id: int, ttl_minutes: int = 10) -> str:
+    """یه کد اتصال جدید می‌سازه و قبلی‌های استفاده‌نشده رو باطل می‌کنه"""
+    # باطل کردن کدهای قبلی
+    cur.execute("UPDATE connect_codes SET used=true WHERE user_id=%s AND used=false", (user_id,))
+    # ساخت کد جدید
+    for _ in range(20):
+        code = _gen_connect_code()
+        cur.execute("SELECT 1 FROM connect_codes WHERE code=%s", (code,))
+        if not cur.fetchone():
+            expires = datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes)
+            cur.execute(
+                "INSERT INTO connect_codes(user_id, code, expires_at) VALUES(%s, %s, %s)",
+                (user_id, code, expires)
+            )
+            return code
+    raise RuntimeError('خطا در تولید کد اتصال')
+
 
 @app.get('/health')
 def health():
@@ -128,6 +151,23 @@ def health():
         return jsonify(status='ok', database='connected'), 200
     except Exception:
         return jsonify(status='degraded', database='unavailable'), 503
+
+
+@app.get('/')
+def index():
+    try:
+        return render_template('index.html')
+    except Exception:
+        return "RipperMods Portal - <a href='/portal'>ورود به پورتال</a>"
+
+
+@app.get('/portal')
+def portal():
+    try:
+        return render_template('portal.html')
+    except Exception:
+        return "فایل portal.html در templates پیدا نشد", 500
+
 
 @contextmanager
 def db():
@@ -140,6 +180,7 @@ def db():
     finally:
         conn.close()
 
+
 def load_ps4_trainers_from_files():
     files = {'json': 'json.txt', 'mc4': 'mc4.txt', 'shn': 'shn.txt'}
     total = 0
@@ -147,7 +188,6 @@ def load_ps4_trainers_from_files():
         with conn.cursor() as cur:
             for fmt, fname in files.items():
                 if not os.path.exists(fname):
-                    log.warning(f"File {fname} not found, skipping.")
                     continue
                 with open(fname, 'r', encoding='utf-8') as f:
                     for line in f:
@@ -162,14 +202,12 @@ def load_ps4_trainers_from_files():
                             continue
                         cusa_id = m.group(1)
                         version = m.group(2)
-                        
                         if fmt == 'mc4':
                             file_url = f"https://raw.githubusercontent.com/GoldHEN/GoldHEN_Cheat_Repository/main/mc4/{left}"
                         elif fmt == 'json':
                             file_url = f"https://raw.githubusercontent.com/GoldHEN/GoldHEN_Cheat_Repository/main/json/{left}"
                         else:
                             file_url = f"https://raw.githubusercontent.com/GoldHEN/GoldHEN_Cheat_Repository/main/shn/{left}"
-                        
                         try:
                             cur.execute("""
                                 INSERT INTO ps4_trainers(cusa_id, version, file_format, game_name, file_url)
@@ -181,6 +219,7 @@ def load_ps4_trainers_from_files():
                         except Exception as e:
                             log.warning(f"Skip {left}: {e}")
     log.info(f"Loaded {total} PS4 trainers into DB.")
+
 
 def init_db():
     global _db_initialized
@@ -198,6 +237,8 @@ def init_db():
             """ALTER TABLE orders ADD COLUMN IF NOT EXISTS tracking_code TEXT""",
             """ALTER TABLE orders ADD COLUMN IF NOT EXISTS receipt_message_id BIGINT""",
             """ALTER TABLE orders ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ""",
+            """ALTER TABLE orders ADD COLUMN IF NOT EXISTS links_sent_via_portal BOOLEAN NOT NULL DEFAULT false""",
+            """ALTER TABLE orders ADD COLUMN IF NOT EXISTS links_expires_at TIMESTAMPTZ""",
             """CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_tracking ON orders(tracking_code) WHERE tracking_code IS NOT NULL""",
             """CREATE TABLE IF NOT EXISTS wallet_transactions (id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL REFERENCES users(telegram_id), amount NUMERIC(14,2) NOT NULL, kind TEXT NOT NULL, reference TEXT, reason TEXT, admin_id BIGINT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), idempotency_key TEXT UNIQUE)""",
             """CREATE TABLE IF NOT EXISTS topups (id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL REFERENCES users(telegram_id), amount NUMERIC(14,2) NOT NULL CHECK(amount > 0), receipt_file_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected')), reviewed_by BIGINT, review_note TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), reviewed_at TIMESTAMPTZ)""",
@@ -223,26 +264,42 @@ def init_db():
                 created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
                 UNIQUE(cusa_id, version, file_format)
             )""",
+            """CREATE TABLE IF NOT EXISTS connect_codes (
+                id BIGSERIAL PRIMARY KEY,
+                user_id BIGINT NOT NULL REFERENCES users(telegram_id),
+                code TEXT NOT NULL UNIQUE,
+                used BOOLEAN NOT NULL DEFAULT false,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                expires_at TIMESTAMPTZ NOT NULL
+            )""",
+            """CREATE TABLE IF NOT EXISTS web_sessions (
+                id BIGSERIAL PRIMARY KEY,
+                user_id BIGINT NOT NULL REFERENCES users(telegram_id),
+                session_token TEXT NOT NULL UNIQUE,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                expires_at TIMESTAMPTZ NOT NULL,
+                last_used TIMESTAMPTZ NOT NULL DEFAULT now()
+            )""",
             "CREATE INDEX IF NOT EXISTS idx_orders_user_created ON orders(user_id, created_at DESC)",
             "CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)",
             "CREATE INDEX IF NOT EXISTS idx_topups_status ON topups(status)",
             "CREATE INDEX IF NOT EXISTS idx_nostalgia_status ON nostalgia_requests(status)",
             "CREATE INDEX IF NOT EXISTS idx_support_user_created ON support_messages(user_id, created_at DESC)",
             "CREATE INDEX IF NOT EXISTS idx_ps4_trainers_cusa ON ps4_trainers(cusa_id)",
+            "CREATE INDEX IF NOT EXISTS idx_connect_codes_code ON connect_codes(code)",
+            "CREATE INDEX IF NOT EXISTS idx_web_sessions_token ON web_sessions(session_token)",
         ]
         with db() as conn:
             with conn.cursor() as cur:
                 for sql in schema:
                     cur.execute(sql)
                 
-                # --- پاکسازی و ایمن‌سازی محصولات ---
                 cur.execute("DELETE FROM product_links WHERE product_id NOT IN (SELECT MIN(id) FROM products GROUP BY name)")
                 cur.execute("DELETE FROM products WHERE id NOT IN (SELECT MIN(id) FROM products GROUP BY name)")
                 cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_products_name_unique ON products (name)")
                 cur.execute("INSERT INTO products(name,description,price,active) VALUES (%s,%s,%s,true) ON CONFLICT (name) DO NOTHING", ('سوپر پک', 'بسته ویژه RipperMods', 799000))
                 cur.execute("INSERT INTO products(name,description,price,active,upgrade_price) VALUES (%s,%s,%s,true,%s) ON CONFLICT (name) DO NOTHING", ('پک ایرانیزه', 'نسخه ایرانیزه شده GTA V (V2)', 799000, 350000))
                 
-                # لینک‌های سوپر پک
                 cur.execute("SELECT id FROM products WHERE name='سوپر پک'")
                 prod_row = cur.fetchone()
                 if prod_row:
@@ -282,6 +339,7 @@ def init_db():
         load_ps4_trainers_from_files()
         _db_initialized = True
 
+
 def audit(admin_id: int, action: str, target: str = '', details: str = ''):
     try:
         with db() as conn:
@@ -300,7 +358,6 @@ async def log_event(context: ContextTypes.DEFAULT_TYPE, text: str):
 
 
 async def log_photo(context: ContextTypes.DEFAULT_TYPE, photo_file_id: str, caption: str) -> Optional[int]:
-    """Send photo to log channel, return message_id."""
     if not LOG_CHANNEL_ID: return None
     try:
         m = await context.bot.send_photo(LOG_CHANNEL_ID, photo_file_id, caption=caption[:1000])
@@ -309,16 +366,11 @@ async def log_photo(context: ContextTypes.DEFAULT_TYPE, photo_file_id: str, capt
         return None
 
 
-async def log_reply_to(context: ContextTypes.DEFAULT_TYPE, reply_to_message_id: int, text: str, photo_file_id: Optional[str] = None, caption: Optional[str] = None) -> bool:
-    """Reply to a message in log channel. If photo given and reply fails, send new."""
+async def log_reply_to(context: ContextTypes.DEFAULT_TYPE, reply_to_message_id: int, text: str) -> bool:
     if not LOG_CHANNEL_ID: return False
     try:
-        if photo_file_id and caption:
-            await context.bot.send_photo(LOG_CHANNEL_ID, photo_file_id, caption=caption[:1000], reply_to_message_id=reply_to_message_id)
-            return True
-        else:
-            await context.bot.send_message(LOG_CHANNEL_ID, text[:3900], reply_to_message_id=reply_to_message_id)
-            return True
+        await context.bot.send_message(LOG_CHANNEL_ID, text[:3900], reply_to_message_id=reply_to_message_id)
+        return True
     except TelegramError:
         return False
 
@@ -329,6 +381,7 @@ def is_admin(uid: int) -> bool:
 def is_super(uid: int) -> bool:
     return uid == SUPER_ADMIN
 
+
 def main_keyboard():
     return ReplyKeyboardMarkup([
         [KeyboardButton('🛍 فروشگاه'), KeyboardButton('💰 کیف پول')],
@@ -337,11 +390,14 @@ def main_keyboard():
         [KeyboardButton('🎮 ترینرهای PS4')],
         [KeyboardButton('🎮 درخواست پورت'), KeyboardButton('📦 درخواست پک اختصاصی')],
         [KeyboardButton('💬 پشتیبانی'), KeyboardButton('🆓 دریافت بیس رایگان')],
-        [KeyboardButton('🔄 دریافت مجدد لینک'), KeyboardButton('🔄 اتصال مجدد / شروع مجدد')]
+        [KeyboardButton('🔄 دریافت مجدد لینک'), KeyboardButton('🌐 ورود به پورتال')],
+        [KeyboardButton('🔄 اتصال مجدد / شروع مجدد')]
     ], resize_keyboard=True)
+
 
 def back_kb():
     return ReplyKeyboardMarkup([[KeyboardButton('⬅️ بازگشت'), KeyboardButton('❌ لغو')]], resize_keyboard=True)
+
 
 def admin_kb():
     return InlineKeyboardMarkup([
@@ -376,200 +432,53 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     welcome = 'به فروشگاه RipperMods خوش آمدید 🌟\nاز منوی زیر گزینه موردنظر را انتخاب کنید.'
-    photo = os.getenv('WELCOME_PHOTO', '').strip()
-    try:
-        if photo:
-            await update.effective_message.reply_photo(photo, caption=welcome, reply_markup=main_keyboard())
-        else:
-            await update.effective_message.reply_text(welcome, reply_markup=main_keyboard())
-    except TelegramError:
-        await update.effective_message.reply_text(welcome, reply_markup=main_keyboard())
+    await update.effective_message.reply_text(welcome, reply_markup=main_keyboard())
     if is_admin(u.id):
         await update.effective_message.reply_text('پنل مدیریت:', reply_markup=admin_kb())
 
 
-async def show_shop(update, context):
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton('🛍 سوپر پک', callback_data='shop:super_pack')],
-        [InlineKeyboardButton('📦 پک ایرانیزه', callback_data='shop:iranian_pack')]
-    ])
-    await update.effective_message.reply_text('لطفاً یکی از پک‌های زیر را انتخاب کنید:', reply_markup=kb)
-
-
-async def show_product_details(update, context, p_name):
+async def send_portal_access(context: ContextTypes.DEFAULT_TYPE, user_id: int, order_id: int, product_name: str, tracking_code: str):
+    """بعد از تایید خرید، پیام پورتال + کد اتصال رو به کاربر می‌فرسته"""
+    if not BASE_URL:
+        log.error('BASE_URL تنظیم نشده — نمی‌تونم لینک پورتال بفرستم')
+        return
+    
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute('SELECT * FROM products WHERE name=%s AND active=true', (p_name,))
-            p = cur.fetchone()
-    if not p:
-        await update.effective_message.reply_text('محصول یافت نشد یا غیرفعال است.', reply_markup=main_keyboard())
-        return
-
-    base_price = Decimal(p['price'])
-    final_price = base_price
+            # ساخت کد اتصال (۱۰ دقیقه اعتبار)
+            connect_code = _create_connect_code(cur, user_id, ttl_minutes=10)
+            # ثبت زمان انقضای لینک‌ها (۵ روز)
+            expires_at = datetime.now(timezone.utc) + timedelta(days=5)
+            cur.execute("UPDATE orders SET links_expires_at=%s WHERE id=%s", (expires_at, order_id))
     
-    coupon_code = context.user_data.get('coupon_code')
-    if coupon_code:
-        with db() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT * FROM coupons WHERE code=%s AND active=true AND (expires_at IS NULL OR expires_at>now())", (coupon_code.upper(),))
-                cp = cur.fetchone()
-        if cp and cp['discount_type'] == 'percent':
-            discount = base_price * (cp['value'] / Decimal(100))
-            final_price = base_price - discount
-            final_price = max(Decimal('0'), final_price).quantize(Decimal('0.01'))
-
-    text = f"🛍 {p['name']}\n{p['description']}\n"
-    if coupon_code and final_price < base_price:
-        text += f"❌ قیمت اصلی: {int(base_price):,} تومان\n"
-        text += f"✅ قیمت با تخفیف ({coupon_code}): {int(final_price):,} تومان"
-    else:
-        text += f"💵 قیمت: {int(final_price):,} تومان"
-        
-    if p['name'] == 'پک ایرانیزه':
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton('خرید با کیف پول', callback_data=f"buyw:{p['id']}"), InlineKeyboardButton('پرداخت کارت‌به‌کارت', callback_data=f"buyc:{p['id']}")],
-            [InlineKeyboardButton('🚀 ارتقا از V1', callback_data=f"upgrade:{p['id']}")],
-            [InlineKeyboardButton('🎟 وارد کردن کد تخفیف', callback_data=f"appcpn:{p['id']}")]
-        ])
-        photo = 'https://s31.uupload.ir/files/rippermodsgtavv100/Amir/4/IMG_20261021_205807_285.jpg'
-    else:
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton('خرید با کیف پول', callback_data=f"buyw:{p['id']}"), InlineKeyboardButton('پرداخت کارت‌به‌کارت', callback_data=f"buyc:{p['id']}")],
-            [InlineKeyboardButton('🎟 وارد کردن کد تخفیف', callback_data=f"appcpn:{p['id']}")]
-        ])
-        photo = 'https://s50.uupload.ir/files/rippermodsgtavv100/Amir/IMG_20261021_205811_651.jpg' if p['name'] == 'سوپر پک' else ''
-        
+    portal_url = f"{BASE_URL}/portal"
+    expires_str = _fa_dt(expires_at)
+    
+    msg = (
+        f"🎉 سفارش شما تایید و تحویل داده شد!\n\n"
+        f"📦 محصول: {product_name}\n"
+        f"🔢 کد پیگیری: {tracking_code}\n\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"🔑 کد اتصال پورتال: {connect_code}\n"
+        f"⏱ اعتبار: ۱۰ دقیقه (بعد از این زمان منقضی می‌شه)\n"
+        f"━━━━━━━━━━━━━━━━━━\n\n"
+        f"🌐 برای دریافت لینک‌های دانلود، به پورتال برو:\n"
+        f"{portal_url}\n\n"
+        f"📝 مراحل:\n"
+        f"۱. به آدرس بالا برو\n"
+        f"۲. کد پیگیری: {tracking_code}\n"
+        f"۳. کد اتصال: {connect_code}\n"
+        f"۴. وارد شو و روی «📥 دریافت لینک» بزن\n\n"
+        f"⚠️ نکات مهم:\n"
+        f"• لینک‌ها تا {expires_str} اعتبار دارن (۵ روز)\n"
+        f"• لینک‌ها فقط یک بار قابل دریافت هستن\n"
+        f"• اگه کد ۱۰ دقیقه‌ای منقضی شد، از منوی ربات «🌐 ورود به پورتال» رو بزن تا کد جدید بگیری"
+    )
+    
     try:
-        if photo:
-            await update.effective_message.reply_photo(photo, caption=text, reply_markup=kb)
-        else:
-            await update.effective_message.reply_text(text, reply_markup=kb)
-    except TelegramError:
-        await update.effective_message.reply_text(text, reply_markup=kb)
-
-
-async def wallet(update, context):
-    uid = update.effective_user.id
-    with db() as conn:
-        with conn.cursor() as cur:
-            cur.execute('SELECT wallet FROM users WHERE telegram_id=%s', (uid,))
-            row = cur.fetchone()
-            cur.execute('SELECT amount,kind,reason,created_at FROM wallet_transactions WHERE user_id=%s ORDER BY id DESC LIMIT 10', (uid,))
-            tx = cur.fetchall()
-    
-    kind_map = {
-        'purchase': '🛒 خرید',
-        'topup': '💰 شارژ',
-        'admin_adjustment': '⚙️ تنظیم موجودی'
-    }
-    
-    lines = [f"💳 موجودی شما: {int(row['wallet']):,} تومان", '', '📜 آخرین تراکنش‌ها:']
-    
-    if not tx:
-        lines.append('هنوز تراکنشی ثبت نشده است.')
-    else:
-        for r in tx:
-            k_fa = kind_map.get(r['kind'], r['kind'])
-            reason_txt = f" ({r['reason']})" if r['reason'] else ""
-            amt = int(r['amount'])
-            sign = "🟢 +" if amt > 0 else "🔴 "
-            amt_str = f"{sign}{abs(amt):,}"
-            
-            lines.append(f"┌ {_fa_dt(r['created_at'])}")
-            lines.append(f"├ {k_fa}{reason_txt}")
-            lines.append(f"└ {amt_str} تومان")
-            
-    kb = InlineKeyboardMarkup([[InlineKeyboardButton('➕ درخواست شارژ', callback_data='wallet:topup')]])
-    await update.effective_message.reply_text('\n'.join(lines), reply_markup=kb)
-
-
-async def account_info(update, context):
-    uid = update.effective_user.id
-    with db() as conn:
-        with conn.cursor() as cur:
-            cur.execute('SELECT reg_name, phone, wallet FROM users WHERE telegram_id=%s', (uid,))
-            r = cur.fetchone()
-    if not r:
-        await update.effective_message.reply_text('اطلاعات حساب یافت نشد. لطفاً /start را بزنید.', reply_markup=main_keyboard())
-        return
-    text = (
-        f"👤 **اطلاعات حساب کاربری شما**\n\n"
-        f"📝 نام و نام خانوادگی: {r['reg_name']}\n"
-        f"📱 شماره تماس: {r['phone']}\n"
-        f"🆔 آیدی عددی: {uid}\n"
-        f"💳 موجودی کیف پول: {int(r['wallet']):,} تومان"
-    )
-    await update.effective_message.reply_text(text, reply_markup=main_keyboard(), parse_mode='Markdown')
-
-
-async def orders_for_user(update, context):
-    with db() as conn:
-        with conn.cursor() as cur:
-            cur.execute("UPDATE orders SET status='cancelled', updated_at=now() WHERE status='pending' AND created_at < now() - interval '24 hours'")
-            cur.execute("SELECT id,tracking_code,product_name,amount,payment_method,status,created_at FROM orders WHERE user_id=%s AND product_name NOT LIKE 'دریافت مجدد%%' ORDER BY id DESC LIMIT 20", (update.effective_user.id,))
-            rows = cur.fetchall()
-    if not rows:
-        await update.effective_message.reply_text('هنوز سفارشی ندارید.', reply_markup=main_keyboard())
-        return
-    
-    status_map = {
-        'pending': '⏳ در حال انجام',
-        'approved': '✅ تایید شده',
-        'delivered': '📦 موفق (تحویل داده شد)',
-        'rejected': '❌ رد شده',
-        'cancelled': '🚫 لغو شده (مهلت پرداخت تمام شد)'
-    }
-    
-    lines = []
-    for r in rows:
-        st_text = status_map.get(r['status'], r['status'])
-        tc = r['tracking_code'] or '—'
-        lines.append(f"🔢 کد پیگیری: {tc}\n#{r['id']} — {r['product_name']} — {int(r['amount']):,} تومان\nوضعیت: {st_text} | {_fa_dt(r['created_at'])}")
-        
-    text = '📦 سفارش‌های شما:\n\n' + '\n\n'.join(lines)
-    await update.effective_message.reply_text(text, reply_markup=main_keyboard())
-
-
-async def begin_topup(update, context):
-    context.user_data['flow'] = 'topup_amount'
-    await update.effective_message.reply_text(
-        'لطفاً مبلغ شارژ را به تومان و فقط به صورت عدد وارد کنید.\n'
-        'مثال: 799000', 
-        reply_markup=back_kb()
-    )
-
-
-async def begin_topup_from_callback(q, context):
-    context.user_data['flow'] = 'topup_amount'
-    await q.message.reply_text(
-        'لطفاً مبلغ شارژ را به تومان و فقط به صورت عدد وارد کنید.\n'
-        'مثال: 799000', 
-        reply_markup=back_kb()
-    )
-
-
-def _build_receipt_caption(kind_label: str, tracking: str, user_info: dict, amount: Decimal, extra_line: str, created_at, status_line: str) -> str:
-    return (
-        f"🧾 {kind_label}\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"🔢 کد پیگیری: {tracking}\n"
-        f"👤 نام: {user_info.get('reg_name') or user_info.get('first_name') or 'ناشناس'}\n"
-        f"🔗 یوزرنیم: @{user_info.get('username')}\n" if user_info.get('username') else
-        f"🧾 {kind_label}\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"🔢 کد پیگیری: {tracking}\n"
-        f"👤 نام: {user_info.get('reg_name') or user_info.get('first_name') or 'ناشناس'}\n"
-        f"🔗 یوزرنیم: بدون‌یوزرنیم\n"
-    ) + (
-        f"🆔 آیدی: {user_info.get('telegram_id', '—')}\n"
-        f"📱 تلفن: {user_info.get('phone') or 'نامشخص'}\n"
-        f"💰 مبلغ: {int(amount):,} تومان\n"
-        f"{extra_line}"
-        f"📅 زمان تراکنش: {_fa_dt(created_at)}\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"{status_line}"
-    )
+        await context.bot.send_message(user_id, msg, disable_web_page_preview=True)
+    except TelegramError as e:
+        log.error(f'Failed to send portal access to {user_id}: {e}')
 
 
 async def review_topup(q, context, rid, decision, admin_id):
@@ -604,7 +513,6 @@ async def review_topup(q, context, rid, decision, admin_id):
             receipt_file_id = r['receipt_file_id']
     audit(admin_id, 'topup_review', str(rid), decision)
     
-    # پیام ساده و کوتاه به خریدار
     try:
         if decision == 'approve':
             await context.bot.send_message(r['user_id'], f"✅ شارژ کیف پول شما تایید شد.\n🔢 کد پیگیری: {tracking}\n💰 مبلغ: {int(amount):,} تومان\n\nموجودی کیف پول شما به‌روزرسانی شد.")
@@ -615,7 +523,6 @@ async def review_topup(q, context, rid, decision, admin_id):
     
     await q.message.reply_text('بررسی ثبت شد.')
     
-    # لاگ کامل توی چنل
     status_fa = '✅ تایید شد' if decision == 'approve' else '❌ رد شد'
     name = uinfo.get('reg_name') or uinfo.get('first_name') or 'ناشناس'
     uname = f"@{uinfo['username']}" if uinfo.get('username') else 'بدون‌یوزرنیم'
@@ -630,19 +537,18 @@ async def review_topup(q, context, rid, decision, admin_id):
         f"📱 تلفن: {phone}\n"
         f"💰 مبلغ: {int(amount):,} تومان\n"
         f"📅 زمان تراکنش: {_fa_dt(created_at)}\n"
-        f"📅 زمان بررسی: {_fa_dt(None) if False else _fa_dt_jnow()}\n"
+        f"📅 زمان بررسی: {_fa_dt(datetime.now(timezone.utc))}\n"
         f"👮 مدیر: ادمین اصلی\n"
         f"━━━━━━━━━━━━━━━━━━"
     )
     replied = False
     if receipt_msg_id:
         replied = await log_reply_to(context, receipt_msg_id, body)
-    if not replied:
-        if receipt_file_id:
-            try:
-                await context.bot.send_photo(LOG_CHANNEL_ID, receipt_file_id, caption=body[:1000])
-            except TelegramError:
-                pass
+    if not replied and receipt_file_id and LOG_CHANNEL_ID:
+        try:
+            await context.bot.send_photo(LOG_CHANNEL_ID, receipt_file_id, caption=body[:1000])
+        except TelegramError:
+            pass
 
 
 async def review_order(q, context, rid, decision, admin_id):
@@ -653,6 +559,7 @@ async def review_order(q, context, rid, decision, admin_id):
     product_name = '—'
     receipt_msg_id = None
     receipt_file_id = None
+    user_id = None
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute('SELECT * FROM orders WHERE id=%s FOR UPDATE', (rid,))
@@ -678,15 +585,24 @@ async def review_order(q, context, rid, decision, admin_id):
             product_name = r['product_name']
             receipt_msg_id = r.get('receipt_message_id')
             receipt_file_id = r['receipt_file_id']
+            user_id = r['user_id']
     audit(admin_id, 'order_review', str(rid), decision)
     await q.message.reply_text('بررسی سفارش ثبت شد.')
     
-    # پیام ساده و کوتاه به خریدار
     if decision == 'approve':
-        await deliver(context, r['user_id'], rid, product_name)
+        # به جای deliver مستقیم، پیام پورتال + کد اتصال رو بفرست
+        try:
+            await send_portal_access(context, user_id, rid, product_name, tracking)
+            # آپدیت وضعیت به delivered
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("UPDATE orders SET status='delivered',delivery_sent=true,updated_at=now() WHERE id=%s", (rid,))
+        except Exception as e:
+            log.exception(f'Failed to send portal access for order {rid}: {e}')
+            await q.message.reply_text(f'⚠️ سفارش تایید شد ولی ارسال پیام پورتال با خطا مواجه شد: {e}')
     else:
         try:
-            await context.bot.send_message(r['user_id'], f"❌ سفارش شما رد شد.\n🔢 کد پیگیری: {tracking}\n\nبرای پیگیری با پشتیبانی تماس بگیرید.")
+            await context.bot.send_message(user_id, f"❌ سفارش شما رد شد.\n🔢 کد پیگیری: {tracking}\n\nبرای پیگیری با پشتیبانی تماس بگیرید.")
         except TelegramError:
             pass
     
@@ -700,32 +616,28 @@ async def review_order(q, context, rid, decision, admin_id):
         f"🔢 کد پیگیری: {tracking}\n"
         f"👤 نام: {name}\n"
         f"🔗 یوزرنیم: {uname}\n"
-        f"🆔 آیدی: {r['user_id']}\n"
+        f"🆔 آیدی: {user_id}\n"
         f"📱 تلفن: {phone}\n"
         f"📦 محصول: {product_name}\n"
         f"💰 مبلغ: {int(amount):,} تومان\n"
         f"📅 زمان تراکنش: {_fa_dt(created_at)}\n"
-        f"📅 زمان بررسی: {_fa_dt_jnow()}\n"
+        f"📅 زمان بررسی: {_fa_dt(datetime.now(timezone.utc))}\n"
         f"👮 مدیر: ادمین اصلی\n"
         f"━━━━━━━━━━━━━━━━━━"
     )
     replied = False
     if receipt_msg_id:
         replied = await log_reply_to(context, receipt_msg_id, body)
-    if not replied:
-        if receipt_file_id:
-            try:
-                await context.bot.send_photo(LOG_CHANNEL_ID, receipt_file_id, caption=body[:1000])
-            except TelegramError:
-                pass
-
-
-def _fa_dt_jnow() -> str:
-    from datetime import datetime, timezone
-    return _fa_dt(datetime.now(timezone.utc))
+    if not replied and receipt_file_id and LOG_CHANNEL_ID:
+        try:
+            await context.bot.send_photo(LOG_CHANNEL_ID, receipt_file_id, caption=body[:1000])
+        except TelegramError:
+            pass
 
 
 async def deliver(context, uid, order_id, product_name):
+    """این تابع دیگه لینک نمی‌فرسته — فقط وضعیت رو delivered می‌کنه.
+    ارسال لینک از طریق پورتال انجام می‌شه."""
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute("UPDATE orders SET status='delivered',delivery_sent=true,updated_at=now() WHERE id=%s AND status IN ('approved', 'delivered') AND delivery_sent=false RETURNING id", (order_id,))
@@ -733,47 +645,6 @@ async def deliver(context, uid, order_id, product_name):
     if not row:
         log.warning(f"Order {order_id} not delivered: row not found or already sent.")
         return
-
-    clean_name = product_name.replace('دریافت مجدد ', '')
-    
-    with db() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT pl.link FROM product_links pl JOIN products p ON pl.product_id = p.id WHERE p.name ILIKE %s ORDER BY pl.id", (f"%{clean_name}%",))
-            links = [r['link'] for r in cur.fetchall()]
-
-    if not links:
-        try:
-            await context.bot.send_message(uid, f'❌ متأسفانه لینک‌های دانلود برای {clean_name} در حال حاضر در دسترس نیست. لطفاً با پشتیبانی تماس بگیرید.')
-        except TelegramError:
-            pass
-        return
-
-    msg_header = f'🎉 محصول شما آماده تحویل است!\nسفارش: #{order_id}\nمحصول: {clean_name}\n\n'
-    msg_header += '⚠️ توجه: لینک‌های دانلود به صورت یک فایل متنی در پیام بعدی برای شما ارسال می‌شود.\n'
-    msg_header += '⚠️ این لینک‌ها فقط تا ۵ روز آینده قابل استفاده هستند.'
-
-    try:
-        await context.bot.send_message(uid, msg_header)
-    except TelegramError as e:
-        log.error(f"Failed to send header to {uid}: {e}")
-        return
-
-    file_content = "⚠️ این لینک‌ها فقط تا 5 روز آینده قابل استفاده هستند.\n\n" + "\n".join(links)
-    file_io = io.BytesIO(file_content.encode('utf-8'))
-    file_io.name = f"RipperMods_Links.txt"
-
-    try:
-        await context.bot.send_document(
-            uid, 
-            document=InputFile(file_io, filename=f"RipperMods_Links.txt"), 
-            caption=f"✅ این فایل حاوی لینک‌های {clean_name} است."
-        )
-    except TelegramError as e:
-        log.error(f"Failed to send file to {uid}: {e}")
-        try:
-            await context.bot.send_message(uid, "❌ متأسفانه ارسال فایل لینک‌ها با خطا مواجه شد. لطفاً به پشتیبانی پیام دهید.")
-        except TelegramError:
-            pass
 
 
 async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -784,14 +655,6 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         if data == 'locked':
             await q.message.reply_text('🔒 این محصول به زودی اضافه خواهد شد.')
-            return
-
-        if data.startswith('shop:super_pack'):
-            await show_product_details(update, context, 'سوپر پک')
-            return
-
-        if data.startswith('shop:iranian_pack'):
-            await show_product_details(update, context, 'پک ایرانیزه')
             return
 
         if data.startswith('trainer:'):
@@ -902,7 +765,6 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     cur.execute('SELECT * FROM products WHERE id=%s', (pid,))
                     p = cur.fetchone()
             if not p: return
-            
             context.user_data['flow'] = 'upgrade_confirm'
             context.user_data['upgrade_pid'] = pid
             kb = InlineKeyboardMarkup([[InlineKeyboardButton('✅ متوجه شدم، ادامه', callback_data=f'upgok:{pid}')], [InlineKeyboardButton('❌ لغو', callback_data='shop:iranian_pack')]])
@@ -922,8 +784,6 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     cur.execute('SELECT * FROM products WHERE id=%s', (pid,))
                     p = cur.fetchone()
             amount = p['upgrade_price']
-            context.user_data['upgrade_amount'] = amount
-            
             kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton('پرداخت با کیف پول', callback_data=f'upgw:{pid}')],
                 [InlineKeyboardButton('پرداخت کارت‌به‌کارت', callback_data=f'upgc:{pid}')]
@@ -953,8 +813,9 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         order = cur.fetchone()['id']
                         cur.execute('UPDATE users SET wallet=wallet-%s WHERE telegram_id=%s', (amount, uid))
                         cur.execute("INSERT INTO wallet_transactions(user_id,amount,kind,reference,reason,idempotency_key) VALUES(%s,%s,'purchase',%s,%s,%s)", (uid, -amount, str(order), 'ارتقا پک', f'upg-{order}'))
-                await q.message.reply_text(f'✅ پرداخت ارتقا ثبت شد.\n🔢 کد پیگیری: {tc}\nشماره سفارش: #{order}\n\nدر حال ارسال لینک‌ها...')
+                await q.message.reply_text(f'✅ پرداخت ارتقا ثبت شد.\n🔢 کد پیگیری: {tc}\nشماره سفارش: #{order}')
                 await deliver(context, uid, order, 'پک ایرانیزه')
+                await send_portal_access(context, uid, order, 'پک ایرانیزه', tc)
             else:
                 with db() as conn:
                     with conn.cursor() as cur:
@@ -970,7 +831,7 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"{card}\n"
                     f"**{holder}**\n"
                     f"===================\n\n"
-                    f"❌ این تراکنش به مدت ۲۴ ساعت اعتبار دارد و پس از آن امکان پرداخت این تراکنش وجود نخواهد داشت.\n\n"
+                    f"❌ این تراکنش به مدت ۲۴ ساعت اعتبار دارد.\n\n"
                     f"‼️ مبلغ باید همان مبلغی باشد که در بالا ذکر شده واریز نمایید.\n"
                     f"‼️ امکان برداشت وجه از کیف پول نیست.\n\n"
                     f"👆 بعد از پرداخت دکمه پرداخت کردم را زده سپس تصویر رسید را ارسال نمایید."
@@ -989,7 +850,6 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if not p:
                         await q.message.reply_text('محصول یافت نشد یا غیرفعال است.')
                         return
-                    
                     cur.execute("SELECT 1 FROM orders WHERE user_id=%s AND product_id=%s AND status IN ('approved','delivered') AND is_upgrade=false AND product_name NOT LIKE 'دریافت مجدد%%'", (uid, pid))
                     if cur.fetchone():
                         await q.message.reply_text('⛔ شما قبلاً این محصول را سفارش داده‌اید و امکان سفارش مجدد وجود ندارد.')
@@ -1036,6 +896,7 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             cur.execute('UPDATE coupons SET uses=uses+1 WHERE id=%s', (context.user_data['coupon_id'],))
                 await q.message.reply_text(f'✅ خرید شما ثبت شد.\n🔢 کد پیگیری: {tc}\nشماره سفارش: #{order}')
                 await deliver(context, uid, order, p['name'])
+                await send_portal_access(context, uid, order, p['name'], tc)
             else:
                 with db() as conn:
                     with conn.cursor() as cur:
@@ -1051,12 +912,11 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"{card}\n"
                     f"**{holder}**\n"
                     f"===================\n\n"
-                    f"❌ این تراکنش به مدت ۲۴ ساعت اعتبار دارد و پس از آن امکان پرداخت این تراکنش وجود نخواهد داشت.\n\n"
+                    f"❌ این تراکنش به مدت ۲۴ ساعت اعتبار دارد.\n\n"
                     f"‼️ مبلغ باید همان مبلغی باشد که در بالا ذکر شده واریز نمایید.\n"
                     f"‼️ امکان برداشت وجه از کیف پول نیست.\n"
                     f"‼️ مسئولیت واریز اشتباهی با شماست.\n\n"
-                    f"👆 بعد از پرداخت دکمه پرداخت کردم را زده سپس تصویر رسید را ارسال نمایید.\n\n"
-                    f"💰 بعد از تایید پرداختتون توسط ادمین کیف پول شما شارژ خواهد شد."
+                    f"👆 بعد از پرداخت دکمه پرداخت کردم را زده سپس تصویر رسید را ارسال نمایید."
                 )
                 kb = InlineKeyboardMarkup([[InlineKeyboardButton('✅ پرداخت کردم | ارسال رسید', callback_data=f'rcpt:{order}:order')]])
                 await q.message.reply_text(msg, reply_markup=kb, parse_mode='Markdown')
@@ -1156,7 +1016,7 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 context.user_data['flow'] = 'adm_wallet_id'
                 await q.message.reply_text('مرحله ۱ از ۳:\nآیدی عددی (Telegram ID) کاربر را وارد کنید:')
             elif action == 'settings':
-                await q.message.reply_text('تنظیمات از Environment Variables خوانده می‌شود. برای تغییر، CARD_NUMBER یا CARD_HOLDER را در Render تغییر دهید.')
+                await q.message.reply_text('تنظیمات از Environment Variables خوانده می‌شود.')
             elif action == 'orders':
                 with db() as conn:
                     with conn.cursor() as cur:
@@ -1167,11 +1027,6 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     tc = r.get('tracking_code') or f"#{r['id']}"
                     lines.append(f"{tc} | {r['user_id']} | {r['product_name']} | {int(r['amount']):,} | {r['status']}")
                 await q.message.reply_text('\n'.join(lines) or 'سفارشی نیست.')
-            elif action == 'ports':
-                await q.message.reply_text('لطفاً از منوی «📋 درخواست‌ها» استفاده کنید.', reply_markup=admin_kb())
-            elif action == 'support':
-                context.user_data['flow'] = 'support_reply'
-                await q.message.reply_text('برای پاسخ وارد کنید: TelegramID,متن پاسخ')
             elif action == 'broadcast':
                 context.user_data['flow'] = 'broadcast'
                 await q.message.reply_text('متن پیام همگانی را وارد کنید:')
@@ -1277,7 +1132,7 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     p = cur.fetchone()
             context.user_data['flow'] = 'edit_price_text'
             context.user_data['edit_price_pid'] = pid
-            await q.message.reply_text(f'لطفاً قیمت جدید را برای {p["name"]} به تومان و فقط به صورت عدد وارد کنید:\nمثال: 799000')
+            await q.message.reply_text(f'لطفاً قیمت جدید را برای {p["name"]} به تومان و فقط به صورت عدد وارد کنید:')
             return
 
         if data.startswith('chg_links:'):
@@ -1285,7 +1140,7 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pid = int(data.split(':')[1])
             context.user_data['flow'] = 'edit_links_text'
             context.user_data['edit_links_pid'] = pid
-            await q.message.reply_text('لطفاً تمام لینک‌های جدید را (هر لینک در یک خط) ارسال کنید.\nبا این کار، لینک‌های قبلی کاملاً پاک می‌شوند.')
+            await q.message.reply_text('لطفاً تمام لینک‌های جدید را (هر لینک در یک خط) ارسال کنید.')
             return
 
         if data.startswith('supportreply:'):
@@ -1368,16 +1223,17 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             return
                         cur.execute('UPDATE users SET wallet=wallet-%s WHERE telegram_id=%s', (amount, uid))
                         tc = _unique_tracking_code(cur, 'orders')
-                        cur.execute("INSERT INTO orders(user_id,product_id,product_name,amount,payment_method,status,wallet_debited,delivery_sent,is_upgrade,tracking_code) VALUES(%s,%s,%s,%s,'wallet','approved',true,false,false,%s) RETURNING id", (uid, pid, f"دریافت مجدد {p['name']}", amount, tc))
+                        cur.execute("INSERT INTO orders(user_id,product_id,product_name,amount,payment_method,status,wallet_debited,delivery_sent,is_upgrade,tracking_code,links_sent_via_portal) VALUES(%s,%s,%s,%s,'wallet','approved',true,false,false,%s,false) RETURNING id", (uid, pid, f"دریافت مجدد {p['name']}", amount, tc))
                         new_oid = cur.fetchone()['id']
                         cur.execute("INSERT INTO wallet_transactions(user_id,amount,kind,reference,reason,idempotency_key) VALUES(%s,%s,'purchase',%s,%s,%s)", (uid, -amount, str(new_oid), f"دریافت مجدد {p['name']}", f'redl-{new_oid}'))
-                await q.message.reply_text(f'✅ پرداخت انجام شد.\n🔢 کد پیگیری: {tc}\n\nدر حال ارسال لینک‌ها...')
+                await q.message.reply_text(f'✅ پرداخت انجام شد.\n🔢 کد پیگیری: {tc}')
                 await deliver(context, uid, new_oid, p['name'])
+                await send_portal_access(context, uid, new_oid, f"دریافت مجدد {p['name']}", tc)
             else:
                 with db() as conn:
                     with conn.cursor() as cur:
                         tc = _unique_tracking_code(cur, 'orders')
-                        cur.execute("INSERT INTO orders(user_id,product_id,product_name,amount,payment_method,status,is_upgrade,tracking_code) VALUES(%s,%s,%s,%s,'card','pending',false,%s) RETURNING id", (uid, pid, f"دریافت مجدد {p['name']}", amount, tc))
+                        cur.execute("INSERT INTO orders(user_id,product_id,product_name,amount,payment_method,status,is_upgrade,tracking_code,links_sent_via_portal) VALUES(%s,%s,%s,%s,'card','pending',false,%s,false) RETURNING id", (uid, pid, f"دریافت مجدد {p['name']}", amount, tc))
                         order = cur.fetchone()['id']
                 card = os.getenv('CARD_NUMBER', '5022291544593963').strip() or 'تنظیم نشده'
                 holder = os.getenv('CARD_HOLDER', 'ریبعی نژاد').strip() or 'تنظیم نشده'
@@ -1388,12 +1244,10 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"{card}\n"
                     f"**{holder}**\n"
                     f"===================\n\n"
-                    f"❌ این تراکنش به مدت ۲۴ ساعت اعتبار دارد و پس از آن امکان پرداخت این تراکنش وجود نخواهد داشت.\n\n"
+                    f"❌ این تراکنش به مدت ۲۴ ساعت اعتبار دارد.\n\n"
                     f"‼️ مبلغ باید همان مبلغی باشد که در بالا ذکر شده واریز نمایید.\n"
-                    f"‼️ امکان برداشت وجه از کیف پول نیست.\n"
-                    f"‼️ مسئولیت واریز اشتباهی با شماست.\n\n"
-                    f"👆 بعد از پرداخت دکمه پرداخت کردم را زده سپس تصویر رسید را ارسال نمایید.\n\n"
-                    f"💰 بعد از تایید پرداختتون توسط ادمین لینک‌ها برای شما ارسال می‌شود."
+                    f"‼️ امکان برداشت وجه از کیف پول نیست.\n\n"
+                    f"👆 بعد از پرداخت دکمه پرداخت کردم را زده سپس تصویر رسید را ارسال نمایید."
                 )
                 kb = InlineKeyboardMarkup([[InlineKeyboardButton('✅ پرداخت کردم | ارسال رسید', callback_data=f'rcpt:{order}:order')]])
                 await q.message.reply_text(msg, reply_markup=kb, parse_mode='Markdown')
@@ -1412,6 +1266,15 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
 
+async def begin_topup_from_callback(q, context):
+    context.user_data['flow'] = 'topup_amount'
+    await q.message.reply_text(
+        'لطفاً مبلغ شارژ را به تومان و فقط به صورت عدد وارد کنید.\n'
+        'مثال: 799000', 
+        reply_markup=back_kb()
+    )
+
+
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.effective_message
     u = update.effective_user
@@ -1424,7 +1287,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.reply_text('عملیات لغو شد.', reply_markup=main_keyboard())
         return
         
-    # --- Registration Flow ---
     flow = context.user_data.get('flow')
     if flow == 'reg_name':
         context.user_data['reg_name'] = text
@@ -1440,14 +1302,21 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 cur.execute('UPDATE users SET reg_name=%s, phone=%s WHERE telegram_id=%s', 
                             (reg_name, phone, u.id))
         context.user_data.clear()
-        await msg.reply_text('✅ ثبت‌نام شما با موفقیت انجام شد! حالا می‌توانید از منوی زیر استفاده کنید.', reply_markup=main_keyboard())
+        await msg.reply_text('✅ ثبت‌نام شما با موفقیت انجام شد!', reply_markup=main_keyboard())
         if is_admin(u.id):
             await msg.reply_text('پنل مدیریت:', reply_markup=admin_kb())
         return
 
-    # --- Normal Flows ---
     if text == '🛍 فروشگاه':
-        await show_shop(update, context); return
+        # فروشگاه ساده شده — فقط سوپر پک
+        await msg.reply_text(
+            "🛍 **سوپر پک GTA V**\n"
+            "بسته ویژه RipperMods شامل خودروهای لوکس و اسپرت\n\n"
+            f"💵 قیمت: ۷۹۹,۰۰۰ تومان\n\n"
+            "برای خرید، از منوی «💰 کیف پول» موجودی خود را شارژ کنید یا از طریق پشتیبانی خرید کنید.",
+            reply_markup=main_keyboard(), parse_mode='Markdown'
+        )
+        return
     if text == '💰 کیف پول':
         await wallet(update, context); return
     if text == '👤 حساب کاربری':
@@ -1458,7 +1327,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text(INSTALL_TUTORIAL, reply_markup=main_keyboard(), parse_mode='Markdown'); return
     if text == '🎟 کد تخفیف':
         context.user_data['flow'] = 'coupon_apply'
-        await msg.reply_text('کد تخفیف را وارد کنید. سپس محصول را از فروشگاه انتخاب کنید.', reply_markup=back_kb()); return
+        await msg.reply_text('کد تخفیف را وارد کنید:', reply_markup=back_kb()); return
     if text == '💬 پشتیبانی':
         context.user_data['flow'] = 'support'
         await msg.reply_text('پیام متنی یا تصویر خود را ارسال کنید.', reply_markup=back_kb()); return
@@ -1488,65 +1357,28 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         kb = InlineKeyboardMarkup([[InlineKeyboardButton(r['name'], callback_data=f"rlsel:{r['id']}")] for r in rows])
         await msg.reply_text('برای دریافت مجدد لینک، پکی که قبلاً خریداری کرده‌اید را انتخاب کنید:', reply_markup=kb)
         return
+    if text == '🌐 ورود به پورتال':
+        if not BASE_URL:
+            await msg.reply_text('⚠️ آدرس پورتال تنظیم نشده. با پشتیبانی تماس بگیرید.')
+            return
+        # ساخت کد اتصال جدید
+        with db() as conn:
+            with conn.cursor() as cur:
+                connect_code = _create_connect_code(cur, u.id, ttl_minutes=10)
+        portal_url = f"{BASE_URL}/portal"
+        await msg.reply_text(
+            f"🌐 **ورود به پورتال مشتریان**\n\n"
+            f"🔑 کد اتصال شما: `{connect_code}`\n"
+            f"⏱ اعتبار: ۱۰ دقیقه\n\n"
+            f"🌐 آدرس پورتال:\n{portal_url}\n\n"
+            f"📝 با کد پیگیری سفارشت (مثل RM-4827) و کد بالا وارد شو.",
+            parse_mode='Markdown', disable_web_page_preview=True
+        )
+        return
     if is_admin(u.id) and text == 'پنل مدیریت':
         await msg.reply_text('پنل مدیریت:', reply_markup=admin_kb()); return
         
     try:
-        if flow == 'adm_track' and is_admin(u.id):
-            code = text.strip().upper()
-            context.user_data.clear()
-            with db() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("SELECT o.*, u.reg_name, u.phone, u.username, u.first_name FROM orders o LEFT JOIN users u ON o.user_id=u.telegram_id WHERE o.tracking_code=%s", (code,))
-                    order = cur.fetchone()
-                    cur.execute("SELECT t.*, u.reg_name, u.phone, u.username, u.first_name FROM topups t LEFT JOIN users u ON t.user_id=u.telegram_id WHERE t.tracking_code=%s", (code,))
-                    topup = cur.fetchone()
-            if not order and not topup:
-                await msg.reply_text('❌ با این کد پیگیری چیزی پیدا نشد.', reply_markup=main_keyboard())
-                return
-            status_map = {'pending':'⏳ در انتظار','approved':'✅ تایید','rejected':'❌ رد','delivered':'📦 تحویل','cancelled':'🚫 لغو'}
-            if order:
-                name = order.get('reg_name') or order.get('first_name') or 'ناشناس'
-                uname = f"@{order['username']}" if order.get('username') else 'بدون‌یوزرنیم'
-                info = (
-                    f"📦 سفارش\n"
-                    f"━━━━━━━━━━━━━━━━━━\n"
-                    f"🔢 کد پیگیری: {order['tracking_code']}\n"
-                    f"🆔 شماره: #{order['id']}\n"
-                    f"👤 نام: {name}\n"
-                    f"🔗 یوزرنیم: {uname}\n"
-                    f"🆔 آیدی: {order['user_id']}\n"
-                    f"📱 تلفن: {order.get('phone') or 'نامشخص'}\n"
-                    f"📦 محصول: {order['product_name']}\n"
-                    f"💰 مبلغ: {int(order['amount']):,} تومان\n"
-                    f"💳 روش: {'کیف پول' if order['payment_method']=='wallet' else 'کارت‌به‌کارت'}\n"
-                    f"📊 وضعیت: {status_map.get(order['status'], order['status'])}\n"
-                    f"📅 زمان ثبت: {_fa_dt(order['created_at'])}\n"
-                    f"📅 زمان بررسی: {_fa_dt(order['reviewed_at']) if order.get('reviewed_at') else '—'}\n"
-                    f"━━━━━━━━━━━━━━━━━━"
-                )
-                await msg.reply_text(info, reply_markup=main_keyboard())
-            if topup:
-                name = topup.get('reg_name') or topup.get('first_name') or 'ناشناس'
-                uname = f"@{topup['username']}" if topup.get('username') else 'بدون‌یوزرنیم'
-                info = (
-                    f"💰 شارژ کیف پول\n"
-                    f"━━━━━━━━━━━━━━━━━━\n"
-                    f"🔢 کد پیگیری: {topup['tracking_code']}\n"
-                    f"🆔 شماره: #{topup['id']}\n"
-                    f"👤 نام: {name}\n"
-                    f"🔗 یوزرنیم: {uname}\n"
-                    f"🆔 آیدی: {topup['user_id']}\n"
-                    f"📱 تلفن: {topup.get('phone') or 'نامشخص'}\n"
-                    f"💰 مبلغ: {int(topup['amount']):,} تومان\n"
-                    f"📊 وضعیت: {status_map.get(topup['status'], topup['status'])}\n"
-                    f"📅 زمان ثبت: {_fa_dt(topup['created_at'])}\n"
-                    f"📅 زمان بررسی: {_fa_dt(topup['reviewed_at']) if topup.get('reviewed_at') else '—'}\n"
-                    f"━━━━━━━━━━━━━━━━━━"
-                )
-                await msg.reply_text(info, reply_markup=main_keyboard())
-            return
-
         if flow == 'ps4_cusa_search':
             raw_cusa = text.strip().upper()
             cusa_num = raw_cusa[4:] if raw_cusa.startswith('CUSA') else raw_cusa
@@ -1557,7 +1389,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     rows = cur.fetchall()
             context.user_data['flow'] = None
             if not rows:
-                await msg.reply_text(f'❌ برای کد {cusa_full} هیچ ترینری پیدا نشد.\nلطفاً کد رو بررسی کنید یا با پشتیبانی تماس بگیرید.', reply_markup=main_keyboard())
+                await msg.reply_text(f'❌ برای کد {cusa_full} هیچ ترینری پیدا نشد.', reply_markup=main_keyboard())
                 return
             game_name = rows[0]['game_name']
             kb_buttons = []
@@ -1567,7 +1399,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 kb_buttons.append([InlineKeyboardButton(btn_text, callback_data=cb_data)])
             kb = InlineKeyboardMarkup(kb_buttons)
             await msg.reply_text(
-                f"🎮 ترینرهای موجود برای: **{game_name}** ({cusa_full})\nلطفاً نسخه مورد نظر خودتون رو انتخاب کنید:",
+                f"🎮 ترینرهای موجود برای: **{game_name}** ({cusa_full})\nنسخه مورد نظر خودتون رو انتخاب کنید:",
                 reply_markup=kb, parse_mode='Markdown'
             )
             return
@@ -1584,37 +1416,29 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             name = uinfo['reg_name'] if uinfo else 'ناشناس'
             phone = uinfo['phone'] if uinfo else 'نامشخص'
             uname = f"@{u.username}" if u.username else 'بدون‌یوزرنیم'
-            
             msg_to_admin = (
                 f"🛠 **درخواست ترینر اختصاصی #{rid}**\n\n"
                 f"📝 متن درخواست:\n{text}\n\n"
-                f"👤 کاربر: {name}\n"
-                f"🔗 یوزرنیم: {uname}\n"
-                f"🆔 آیدی: `{u.id}`\n"
-                f"📱 تلفن: {phone}"
+                f"👤 کاربر: {name}\n🔗 یوزرنیم: {uname}\n🆔 آیدی: `{u.id}`\n📱 تلفن: {phone}"
             )
-            
             kb = InlineKeyboardMarkup([[InlineKeyboardButton('💬 پاسخ به کاربر', callback_data=f'customtrainer_reply:{u.id}')]])
-            
-            admin3 = ADMIN3
-            try:
-                if admin3:
-                    await context.bot.send_message(admin3, msg_to_admin, reply_markup=kb, parse_mode='Markdown')
-            except TelegramError:
-                pass
-            await msg.reply_text('✅ درخواست شما برای ساخت ترینر اختصاصی ثبت شد. به زودی با شما تماس می‌گیریم.', reply_markup=main_keyboard())
+            if ADMIN3:
+                try:
+                    await context.bot.send_message(ADMIN3, msg_to_admin, reply_markup=kb, parse_mode='Markdown')
+                except TelegramError:
+                    pass
+            await msg.reply_text('✅ درخواست شما ثبت شد.', reply_markup=main_keyboard())
             return
 
         if flow == 'customtrainer_reply_text' and is_admin(u.id):
             target = context.user_data['customtrainer_target']
-            body = text
             try:
-                await context.bot.send_message(target, f'💬 **پاسخ به درخواست ترینر اختصاصی شما:**\n\n{body}', parse_mode='Markdown')
+                await context.bot.send_message(target, f'💬 **پاسخ:**\n\n{text}', parse_mode='Markdown')
             except TelegramError:
                 pass
-            audit(u.id, 'customtrainer_reply', str(target), body)
+            audit(u.id, 'customtrainer_reply', str(target), text)
             context.user_data.clear()
-            await msg.reply_text('پاسخ شما برای کاربر ارسال شد.')
+            await msg.reply_text('پاسخ ارسال شد.')
             return
 
         if flow == 'topup_amount':
@@ -1623,21 +1447,14 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 raise InvalidOperation()
             context.user_data['topup_amount'] = amount
             context.user_data['flow'] = 'topup_amount_confirm'
-            
             card = os.getenv('CARD_NUMBER', '5022291544593963').strip() or 'تنظیم نشده'
             holder = os.getenv('CARD_HOLDER', 'ریبعی نژاد').strip() or 'تنظیم نشده'
             msg_text = (
-                f"برای افزایش موجودی، مبلغ {int(amount):,} تومان را به شماره‌ی حساب زیر واریز کنید 👇\n\n"
-                f"===================\n"
-                f"{card}\n"
-                f"**{holder}**\n"
-                f"===================\n\n"
-                f"❌ این تراکنش به مدت ۲۴ ساعت اعتبار دارد و پس از آن امکان پرداخت این تراکنش وجود نخواهد داشت.\n\n"
-                f"‼️ مبلغ باید همان مبلغی باشد که در بالا ذکر شده واریز نمایید.\n"
-                f"‼️ امکان برداشت وجه از کیف پول نیست.\n"
-                f"‼️ مسئولیت واریز اشتباهی با شماست.\n\n"
-                f"👆 بعد از پرداخت دکمه پرداخت کردم را زده سپس تصویر رسید را ارسال نمایید.\n\n"
-                f"💰 بعد از تایید پرداختتون توسط ادمین کیف پول شما شارژ خواهد شد."
+                f"مبلغ {int(amount):,} تومان را به شماره‌ی حساب زیر واریز کنید 👇\n\n"
+                f"===================\n{card}\n**{holder}**\n===================\n\n"
+                f"❌ اعتبار: ۲۴ ساعت\n\n"
+                f"‼️ مبلغ دقیقاً همان مبلغ بالا باشد.\n\n"
+                f"👆 بعد از پرداخت دکمه را زده و رسید را بفرستید."
             )
             kb = InlineKeyboardMarkup([[InlineKeyboardButton('✅ پرداخت کردم | ارسال رسید', callback_data='rcpt:0:topup')]])
             await msg.reply_text(msg_text, reply_markup=kb, parse_mode='Markdown')
@@ -1656,30 +1473,22 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     cur.execute('SELECT created_at FROM topups WHERE id=%s', (rid,))
                     created = cur.fetchone()['created_at']
             context.user_data.clear()
-            await msg.reply_text(f'⏳ درخواست شارژ شما ثبت شد.\n🔢 کد پیگیری: {tc}\n\nپس از بررسی مدیر اصلی، نتیجه به شما اطلاع داده می‌شود.', reply_markup=main_keyboard())
+            await msg.reply_text(f'⏳ درخواست شارژ ثبت شد.\n🔢 کد پیگیری: {tc}', reply_markup=main_keyboard())
             
-            # ارسال به ادمین اصلی
             kb = InlineKeyboardMarkup([[InlineKeyboardButton('✅ تایید شارژ', callback_data=f'topup:{rid}:approve'), InlineKeyboardButton('❌ رد شارژ', callback_data=f'topup:{rid}:reject')]])
             user_info = f"{uinfo['reg_name']} | @{u.username or 'بدون‌یوزرنیم'} | {u.id} | تلفن: {uinfo['phone']}"
             try:
-                await context.bot.send_photo(SUPER_ADMIN, file_id, caption=f'💳 درخواست شارژ جدید\n🔢 کد پیگیری: {tc}\n👤 {user_info}\n💰 مبلغ: {int(amount):,} تومان\n📅 {_fa_dt(created)}', reply_markup=kb)
+                await context.bot.send_photo(SUPER_ADMIN, file_id, caption=f'💳 درخواست شارژ\n🔢 {tc}\n👤 {user_info}\n💰 {int(amount):,} تومان\n📅 {_fa_dt(created)}', reply_markup=kb)
             except TelegramError:
                 pass
             
-            # لاگ توی چنل با کد پیگیری
             cap = (
-                f"🧾 رسید جدید — در انتظار بررسی\n"
-                f"━━━━━━━━━━━━━━━━━━\n"
-                f"🔢 کد پیگیری: {tc}\n"
-                f"👤 نام: {uinfo['reg_name']}\n"
-                f"🔗 یوزرنیم: @{u.username or 'بدون‌یوزرنیم'}\n"
-                f"🆔 آیدی: {u.id}\n"
-                f"📱 تلفن: {uinfo['phone']}\n"
-                f"💰 مبلغ: {int(amount):,} تومان\n"
-                f"📦 نوع: شارژ کیف پول\n"
-                f"📅 زمان تراکنش: {_fa_dt(created)}\n"
-                f"━━━━━━━━━━━━━━━━━━\n"
-                f"⏳ وضعیت: در انتظار بررسی"
+                f"🧾 رسید جدید — در انتظار بررسی\n━━━━━━━━━━━━━━━━━━\n"
+                f"🔢 کد پیگیری: {tc}\n👤 نام: {uinfo['reg_name']}\n"
+                f"🔗 یوزرنیم: @{u.username or 'بدون‌یوزرنیم'}\n🆔 آیدی: {u.id}\n"
+                f"📱 تلفن: {uinfo['phone']}\n💰 مبلغ: {int(amount):,} تومان\n"
+                f"📦 نوع: شارژ کیف پول\n📅 زمان تراکنش: {_fa_dt(created)}\n"
+                f"━━━━━━━━━━━━━━━━━━\n⏳ وضعیت: در انتظار بررسی"
             )
             msg_id = await log_photo(context, file_id, cap)
             if msg_id:
@@ -1701,28 +1510,22 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not r:
                 await msg.reply_text('سفارش در انتظار یافت نشد.'); return
             tc = r['tracking_code'] or '—'
-            await msg.reply_text(f'⏳ رسید سفارش شما دریافت شد.\n🔢 کد پیگیری: {tc}\n\nپس از بررسی مدیر اصلی، نتیجه به شما اطلاع داده می‌شود.', reply_markup=main_keyboard())
+            await msg.reply_text(f'⏳ رسید سفارش دریافت شد.\n🔢 کد پیگیری: {tc}', reply_markup=main_keyboard())
             
             kb = InlineKeyboardMarkup([[InlineKeyboardButton('✅ تایید و تحویل', callback_data=f'orderreview:{rid}:approve'), InlineKeyboardButton('❌ رد سفارش', callback_data=f'orderreview:{rid}:reject')]])
             user_info = f"{uinfo['reg_name']} | @{u.username or 'بدون‌یوزرنیم'} | {u.id} | تلفن: {uinfo['phone']}"
             try:
-                await context.bot.send_photo(SUPER_ADMIN, file_id, caption=f"📦 رسید سفارش جدید\n🔢 کد پیگیری: {tc}\n👤 {user_info}\n🛍 {r['product_name']}\n💰 {int(r['amount']):,} تومان\n📅 {_fa_dt(r['created_at'])}", reply_markup=kb)
+                await context.bot.send_photo(SUPER_ADMIN, file_id, caption=f"📦 رسید سفارش\n🔢 {tc}\n👤 {user_info}\n🛍 {r['product_name']}\n💰 {int(r['amount']):,} تومان", reply_markup=kb)
             except TelegramError:
                 pass
             
             cap = (
-                f"🧾 رسید جدید — در انتظار بررسی\n"
-                f"━━━━━━━━━━━━━━━━━━\n"
-                f"🔢 کد پیگیری: {tc}\n"
-                f"👤 نام: {uinfo['reg_name']}\n"
-                f"🔗 یوزرنیم: @{u.username or 'بدون‌یوزرنیم'}\n"
-                f"🆔 آیدی: {u.id}\n"
-                f"📱 تلفن: {uinfo['phone']}\n"
-                f"📦 محصول: {r['product_name']}\n"
-                f"💰 مبلغ: {int(r['amount']):,} تومان\n"
-                f"📅 زمان تراکنش: {_fa_dt(r['created_at'])}\n"
-                f"━━━━━━━━━━━━━━━━━━\n"
-                f"⏳ وضعیت: در انتظار بررسی"
+                f"🧾 رسید جدید — در انتظار بررسی\n━━━━━━━━━━━━━━━━━━\n"
+                f"🔢 کد پیگیری: {tc}\n👤 نام: {uinfo['reg_name']}\n"
+                f"🔗 یوزرنیم: @{u.username or 'بدون‌یوزرنیم'}\n🆔 آیدی: {u.id}\n"
+                f"📱 تلفن: {uinfo['phone']}\n📦 محصول: {r['product_name']}\n"
+                f"💰 مبلغ: {int(r['amount']):,} تومان\n📅 زمان تراکنش: {_fa_dt(r['created_at'])}\n"
+                f"━━━━━━━━━━━━━━━━━━\n⏳ وضعیت: در انتظار بررسی"
             )
             msg_id = await log_photo(context, file_id, cap)
             if msg_id:
@@ -1739,30 +1542,15 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     cp = cur.fetchone()
             if not cp:
                 await msg.reply_text('کد نامعتبر، منقضی یا غیرفعال است.'); return
-            with db() as conn:
-                with conn.cursor() as cur:
-                    cur.execute('SELECT 1 FROM coupon_uses WHERE coupon_id=%s AND user_id=%s', (cp['id'], u.id))
-                    used = cur.fetchone()
-            if used:
-                await msg.reply_text('این کد را قبلاً استفاده کرده‌اید.'); return
             context.user_data.update(coupon_code=code, flow=None)
-            target_pid = context.user_data.pop('coupon_target_pid', None)
-            if target_pid:
-                with db() as conn:
-                    with conn.cursor() as cur:
-                        cur.execute('SELECT name FROM products WHERE id=%s', (target_pid,))
-                        pr = cur.fetchone()
-                await msg.reply_text('✅ کد تخفیف با موفقیت اعمال شد.', reply_markup=main_keyboard())
-                await show_product_details(update, context, pr['name'])
-            else:
-                await msg.reply_text('✅ کد ذخیره شد. حالا روی محصولی که می‌خواید تخفیف بگیرید کلیک کنید.', reply_markup=main_keyboard())
+            await msg.reply_text('✅ کد تخفیف ذخیره شد.', reply_markup=main_keyboard())
             return
         if flow == 'port_game':
             context.user_data.update(port_game=text, flow='port_platform')
-            await msg.reply_text('پلتفرم موردنظر را وارد کنید (مثلاً PC، Android، کنسول):'); return
+            await msg.reply_text('پلتفرم موردنظر (PC، Android، کنسول):'); return
         if flow == 'port_platform':
             context.user_data.update(port_platform=text, flow='port_details')
-            await msg.reply_text('توضیحات اضافی را وارد کنید یا «ندارد» بنویسید:'); return
+            await msg.reply_text('توضیحات اضافی یا «ندارد»:'); return
         if flow == 'port_details':
             game = context.user_data['port_game']
             platform = context.user_data['port_platform']
@@ -1775,22 +1563,10 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     uinfo = cur.fetchone()
             context.user_data.clear()
             await msg.reply_text(f'درخواست پورت #{rid} ثبت شد.', reply_markup=main_keyboard())
-            
             name = uinfo['reg_name'] if uinfo else 'ناشناس'
             phone = uinfo['phone'] if uinfo else 'نامشخص'
             uname = f"@{u.username}" if u.username else 'بدون‌یوزرنیم'
-            
-            msg_to_admin = (
-                f"🎮 **درخواست پورت #{rid}**\n\n"
-                f"🎯 بازی: {game}\n"
-                f"💻 پلتفرم: {platform}\n"
-                f"📝 توضیحات: {details}\n\n"
-                f"👤 کاربر: {name}\n"
-                f"🔗 یوزرنیم: {uname}\n"
-                f"🆔 آیدی: `{u.id}`\n"
-                f"📱 تلفن: {phone}"
-            )
-            
+            msg_to_admin = f"🎮 **درخواست پورت #{rid}**\n\n🎯 بازی: {game}\n💻 پلتفرم: {platform}\n📝 توضیحات: {details}\n\n👤 کاربر: {name}\n🔗 یوزرنیم: {uname}\n🆔 آیدی: `{u.id}`\n📱 تلفن: {phone}"
             for aid in {SUPER_ADMIN, PORT_ADMIN}:
                 try:
                     if aid:
@@ -1800,10 +1576,10 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         if flow == 'custom_pack_game':
             context.user_data.update(custom_pack_game=text, flow='custom_pack_platform')
-            await msg.reply_text('پلتفرم موردنظر را وارد کنید (مثلاً PC، PS4، Xbox):'); return
+            await msg.reply_text('پلتفرم (PC، PS4، Xbox):'); return
         if flow == 'custom_pack_platform':
             context.user_data.update(custom_pack_platform=text, flow='custom_pack_details')
-            await msg.reply_text('توضیحات/نیازمندی‌های پک اختصاصی خود را وارد کنید:'); return
+            await msg.reply_text('توضیحات/نیازمندی‌های پک اختصاصی:'); return
         if flow == 'custom_pack_details':
             game = context.user_data['custom_pack_game']
             platform = context.user_data['custom_pack_platform']
@@ -1815,23 +1591,11 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     cur.execute('SELECT reg_name, phone FROM users WHERE telegram_id=%s', (u.id,))
                     uinfo = cur.fetchone()
             context.user_data.clear()
-            await msg.reply_text(f'درخواست پک اختصاصی #{rid} ثبت شد. به زودی با شما تماس می‌گیریم.', reply_markup=main_keyboard())
-            
+            await msg.reply_text(f'درخواست پک اختصاصی #{rid} ثبت شد.', reply_markup=main_keyboard())
             name = uinfo['reg_name'] if uinfo else 'ناشناس'
             phone = uinfo['phone'] if uinfo else 'نامشخص'
             uname = f"@{u.username}" if u.username else 'بدون‌یوزرنیم'
-            
-            msg_to_admin = (
-                f"📦 **درخواست پک اختصاصی #{rid}**\n\n"
-                f"🎯 بازی: {game}\n"
-                f"💻 پلتفرم: {platform}\n"
-                f"📝 توضیحات: {details}\n\n"
-                f"👤 کاربر: {name}\n"
-                f"🔗 یوزرنیم: {uname}\n"
-                f"🆔 آیدی: `{u.id}`\n"
-                f"📱 تلفن: {phone}"
-            )
-            
+            msg_to_admin = f"📦 **درخواست پک اختصاصی #{rid}**\n\n🎯 بازی: {game}\n💻 پلتفرم: {platform}\n📝 توضیحات: {details}\n\n👤 کاربر: {name}\n🔗 یوزرنیم: {uname}\n🆔 آیدی: `{u.id}`\n📱 تلفن: {phone}"
             try:
                 await context.bot.send_message(SUPER_ADMIN, msg_to_admin, parse_mode='Markdown')
             except TelegramError:
@@ -1866,18 +1630,43 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.reply_text(f"کاربر: {target}\nنام: {r['first_name'] if r else 'یافت نشد'}\nموجودی: {int(r['wallet']):,} تومان" if r else f"کاربر: {target}\nنام: یافت نشد")
             audit(u.id, 'user_lookup', str(target))
             context.user_data.clear(); return
+        if flow == 'adm_track' and is_admin(u.id):
+            code = text.strip().upper()
+            context.user_data.clear()
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT o.*, u.reg_name, u.phone, u.username, u.first_name FROM orders o LEFT JOIN users u ON o.user_id=u.telegram_id WHERE o.tracking_code=%s", (code,))
+                    order = cur.fetchone()
+            if not order:
+                await msg.reply_text('❌ پیدا نشد.', reply_markup=main_keyboard())
+                return
+            status_map = {'pending':'⏳ در انتظار','approved':'✅ تایید','rejected':'❌ رد','delivered':'📦 تحویل','cancelled':'🚫 لغو'}
+            name = order.get('reg_name') or order.get('first_name') or 'ناشناس'
+            uname = f"@{order['username']}" if order.get('username') else 'بدون‌یوزرنیم'
+            info = (
+                f"📦 سفارش\n━━━━━━━━━━━━━━━━━━\n"
+                f"🔢 کد پیگیری: {order['tracking_code']}\n🆔 #{order['id']}\n"
+                f"👤 {name}\n🔗 {uname}\n🆔 {order['user_id']}\n"
+                f"📱 {order.get('phone') or 'نامشخص'}\n📦 {order['product_name']}\n"
+                f"💰 {int(order['amount']):,} تومان\n"
+                f"📊 {status_map.get(order['status'], order['status'])}\n"
+                f"📅 {_fa_dt(order['created_at'])}\n"
+                f"🔗 لینک ارسال شده: {'✅' if order.get('links_sent_via_portal') else '❌'}"
+            )
+            await msg.reply_text(info, reply_markup=main_keyboard())
+            return
         if flow == 'adm_wallet_id':
             if not is_super(u.id): return
             target = int(text)
             context.user_data['adm_wallet_target'] = target
             context.user_data['flow'] = 'adm_wallet_amount'
-            await msg.reply_text('مرحله ۲ از ۳:\nمبلغ مورد نظر را وارد کنید (برای کسر، عدد را با منفی وارد کنید. مثلاً: -50000):'); return
+            await msg.reply_text('مبلغ (برای کسر، منفی):'); return
         if flow == 'adm_wallet_amount':
             if not is_super(u.id): return
             amount = Decimal(text)
             context.user_data['adm_wallet_amount'] = amount
             context.user_data['flow'] = 'adm_wallet_reason'
-            await msg.reply_text('مرحله ۳ از ۳:\nدلیل تغییر موجودی را وارد کنید (مثلاً: بابت شارژ دستی):'); return
+            await msg.reply_text('دلیل:'); return
         if flow == 'adm_wallet_reason':
             if not is_super(u.id): return
             target = context.user_data['adm_wallet_target']
@@ -1888,44 +1677,38 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     cur.execute('SELECT wallet FROM users WHERE telegram_id=%s FOR UPDATE', (target,))
                     r = cur.fetchone()
                     if not r:
-                        await msg.reply_text('کاربر یافت نشد. کاربر باید ابتدا ربات را /start کند.'); return
+                        await msg.reply_text('کاربر یافت نشد.'); return
                     if r['wallet'] + amount < 0:
                         await msg.reply_text('موجودی نمی‌تواند منفی شود.'); return
                     cur.execute('UPDATE users SET wallet=wallet+%s WHERE telegram_id=%s', (amount, target))
                     cur.execute("INSERT INTO wallet_transactions(user_id,amount,kind,reason,admin_id,idempotency_key) VALUES(%s,%s,'admin_adjustment',%s,%s,%s)", (target, amount, reason, u.id, f'adj-{u.id}-{time.time_ns()}'))
             audit(u.id, 'wallet_adjustment', str(target), f'{amount}: {reason}')
-            await msg.reply_text(f'موجودی کاربر {target} به میزان {amount:,} تغییر کرد.', reply_markup=main_keyboard())
+            await msg.reply_text(f'موجودی تغییر کرد.', reply_markup=main_keyboard())
             try:
-                await context.bot.send_message(target, f'💰 موجودی کیف پول شما به میزان {amount:,} تومان تغییر کرد.\nدلیل: {reason}')
+                await context.bot.send_message(target, f'💰 موجودی شما {amount:,} تومان تغییر کرد.')
             except TelegramError:
                 pass
             context.user_data.clear(); return
         if flow == 'adm_coupon_code':
             if not is_super(u.id): return
             code = text.upper()
-            if ' ' in code:
-                await msg.reply_text('کد نباید فاصله داشته باشد. دوباره وارد کنید:'); return
             context.user_data['adm_coupon_code'] = code
             context.user_data['flow'] = 'adm_coupon_value'
-            await msg.reply_text('مرحله ۲ از ۴:\nلطفاً **درصد تخفیف** را وارد کنید (مثلاً 20 برای ۲۰٪):'); return
+            await msg.reply_text('درصد تخفیف (مثلاً 20):'); return
         if flow == 'adm_coupon_value':
             if not is_super(u.id): return
-            try:
-                val = Decimal(text)
-                if val <= 0 or val > 100:
-                    await msg.reply_text('درصد تخفیف باید بین ۱ تا ۱۰۰ باشد.'); return
-                context.user_data['adm_coupon_value'] = val
-                context.user_data['flow'] = 'adm_coupon_maxuses'
-                await msg.reply_text('مرحله ۳ از ۴:\nحداکثر تعداد استفاده از این کد را وارد کنید (یا 0 برای نامحدود):')
-            except InvalidOperation:
-                await msg.reply_text('عدد معتبر نیست. لطفاً دوباره وارد کنید.')
-            return
+            val = Decimal(text)
+            if val <= 0 or val > 100:
+                await msg.reply_text('بین ۱ تا ۱۰۰.'); return
+            context.user_data['adm_coupon_value'] = val
+            context.user_data['flow'] = 'adm_coupon_maxuses'
+            await msg.reply_text('حداکثر استفاده (0=نامحدود):'); return
         if flow == 'adm_coupon_maxuses':
             if not is_super(u.id): return
             mu = int(text)
             context.user_data['adm_coupon_maxuses'] = mu if mu > 0 else None
             context.user_data['flow'] = 'adm_coupon_days'
-            await msg.reply_text('مرحله ۴ از ۴:\nاین کد چند روز اعتبار داشته باشد؟ (0 برای بدون انقضا):'); return
+            await msg.reply_text('چند روز اعتبار؟ (0=بدون انقضا):'); return
         if flow == 'adm_coupon_days':
             if not is_super(u.id): return
             days = int(text)
@@ -1933,14 +1716,12 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             value = context.user_data['adm_coupon_value']
             mu = context.user_data['adm_coupon_maxuses']
             d = days if days > 0 else None
-            
             with db() as conn:
                 with conn.cursor() as cur:
                     cur.execute("INSERT INTO coupons(code,discount_type,value,max_uses,expires_at,created_by) VALUES(%s,'percent',%s,%s,CASE WHEN %s IS NULL THEN NULL ELSE now()+(%s * interval '1 day') END,%s)", (code, value, mu, d, d, u.id))
             audit(u.id, 'coupon_created', code, f'percent {value}')
-            await msg.reply_text(f'کد تخفیف {code} با موفقیت ایجاد شد.', reply_markup=main_keyboard())
+            await msg.reply_text(f'کد تخفیف {code} ساخته شد.', reply_markup=main_keyboard())
             context.user_data.clear(); return
-
         if flow == 'edit_links_text':
             if not is_super(u.id): return
             pid = context.user_data.get('edit_links_pid')
@@ -1951,9 +1732,8 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     for link in links:
                         cur.execute("INSERT INTO product_links(product_id, link) VALUES(%s, %s)", (pid, link))
             audit(u.id, 'links_updated', str(pid), f'{len(links)} links')
-            await msg.reply_text(f'✅ تعداد {len(links)} لینک با موفقیت برای این محصول ثبت شد.', reply_markup=main_keyboard())
+            await msg.reply_text(f'✅ {len(links)} لینک ثبت شد.', reply_markup=main_keyboard())
             context.user_data.clear(); return
-
         if flow == 'edit_price_text':
             if not is_super(u.id): return
             pid = context.user_data.get('edit_price_pid')
@@ -1962,9 +1742,8 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 with conn.cursor() as cur:
                     cur.execute("UPDATE products SET price=%s WHERE id=%s", (new_price, pid))
             audit(u.id, 'price_updated', str(pid), f'{new_price}')
-            await msg.reply_text(f'✅ قیمت محصول با موفقیت به {int(new_price):,} تومان تغییر یافت.', reply_markup=main_keyboard())
+            await msg.reply_text(f'✅ قیمت به {int(new_price):,} تغییر کرد.', reply_markup=main_keyboard())
             context.user_data.clear(); return
-
         if flow == 'support_reply_target' and is_admin(u.id):
             target = int(context.user_data['support_target']); body = text
             try:
@@ -1987,9 +1766,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await context.bot.send_message(target, '💬 پاسخ پشتیبانی:\n' + body)
             except TelegramError:
                 pass
-            with db() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("INSERT INTO support_messages(user_id,direction,message_text,admin_id) VALUES(%s,'admin_to_user',%s,%s)", (target, body, u.id))
             audit(u.id, 'support_reply', str(target), body)
             await msg.reply_text('پاسخ ارسال شد.')
             context.user_data.clear(); return
@@ -2008,26 +1784,85 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data.clear()
             await msg.reply_text('پاسخ ارسال شد.')
             return
-        if is_admin(u.id) and text.startswith('/admin'):
-            await msg.reply_text('پنل مدیریت:', reply_markup=admin_kb()); return
+        if flow == 'broadcast' and is_admin(u.id):
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute('SELECT telegram_id FROM users')
+                    users = cur.fetchall()
+            sent = 0
+            for row in users:
+                try:
+                    await context.bot.send_message(row['telegram_id'], text)
+                    sent += 1
+                    await asyncio.sleep(0.05)
+                except TelegramError:
+                    pass
+            await msg.reply_text(f'پیام برای {sent} کاربر ارسال شد.', reply_markup=main_keyboard())
+            context.user_data.clear(); return
         await msg.reply_text('از منوی زیر انتخاب کنید یا /start را بزنید.', reply_markup=main_keyboard())
     except (ValueError, InvalidOperation):
-        await msg.reply_text('ورودی معتبر نیست. لطفاً دوباره بررسی کنید.')
-    except Exception as e:
+        await msg.reply_text('ورودی معتبر نیست.')
+    except Exception:
         log.exception('Message handler error')
         try:
-            await msg.reply_text('خطایی رخ داد. لطفاً دوباره تلاش کنید.')
+            await msg.reply_text('خطایی رخ داد.')
         except TelegramError:
             pass
 
 
+async def wallet(update, context):
+    uid = update.effective_user.id
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT wallet FROM users WHERE telegram_id=%s', (uid,))
+            row = cur.fetchone()
+            cur.execute('SELECT amount,kind,reason,created_at FROM wallet_transactions WHERE user_id=%s ORDER BY id DESC LIMIT 10', (uid,))
+            tx = cur.fetchall()
+    kind_map = {'purchase': '🛒 خرید', 'topup': '💰 شارژ', 'admin_adjustment': '⚙️ تنظیم'}
+    lines = [f"💳 موجودی شما: {int(row['wallet']):,} تومان", '', '📜 آخرین تراکنش‌ها:']
+    if not tx:
+        lines.append('هنوز تراکنشی نیست.')
+    else:
+        for r in tx:
+            k_fa = kind_map.get(r['kind'], r['kind'])
+            amt = int(r['amount'])
+            sign = "🟢 +" if amt > 0 else "🔴 "
+            lines.append(f"┌ {_fa_dt(r['created_at'])}\n├ {k_fa}\n└ {sign}{abs(amt):,} تومان")
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton('➕ درخواست شارژ', callback_data='wallet:topup')]])
+    await update.effective_message.reply_text('\n'.join(lines), reply_markup=kb)
+
+
+async def account_info(update, context):
+    uid = update.effective_user.id
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT reg_name, phone, wallet FROM users WHERE telegram_id=%s', (uid,))
+            r = cur.fetchone()
+    if not r:
+        await update.effective_message.reply_text('اطلاعات یافت نشد.', reply_markup=main_keyboard()); return
+    text = f"👤 **اطلاعات شما**\n\n📝 نام: {r['reg_name']}\n📱 تلفن: {r['phone']}\n🆔 آیدی: {uid}\n💳 موجودی: {int(r['wallet']):,} تومان"
+    await update.effective_message.reply_text(text, reply_markup=main_keyboard(), parse_mode='Markdown')
+
+
+async def orders_for_user(update, context):
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE orders SET status='cancelled', updated_at=now() WHERE status='pending' AND created_at < now() - interval '24 hours'")
+            cur.execute("SELECT id,tracking_code,product_name,amount,status,created_at FROM orders WHERE user_id=%s ORDER BY id DESC LIMIT 20", (update.effective_user.id,))
+            rows = cur.fetchall()
+    if not rows:
+        await update.effective_message.reply_text('هنوز سفارشی ندارید.', reply_markup=main_keyboard()); return
+    status_map = {'pending':'⏳ در انتظار','approved':'✅ تایید','delivered':'📦 تحویل','rejected':'❌ رد','cancelled':'🚫 لغو'}
+    lines = []
+    for r in rows:
+        st = status_map.get(r['status'], r['status'])
+        tc = r['tracking_code'] or '—'
+        lines.append(f"🔢 {tc} — {r['product_name']}\n💰 {int(r['amount']):,} تومان | {st} | {_fa_dt(r['created_at'])}")
+    await update.effective_message.reply_text('📦 سفارش‌های شما:\n\n' + '\n\n'.join(lines), reply_markup=main_keyboard())
+
+
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    log.error('Unhandled Telegram update error', exc_info=context.error)
-    if isinstance(update, Update) and update.effective_user and is_admin(update.effective_user.id):
-        try:
-            await update.effective_message.reply_text('خطای داخلی رخ داد؛ جزئیات محرمانه در پیام نمایش داده نمی‌شود.')
-        except Exception:
-            pass
+    log.error('Unhandled error', exc_info=context.error)
 
 
 def build_application() -> Application:
@@ -2039,29 +1874,32 @@ def build_application() -> Application:
     return application
 
 
+def _set_bot_app(app_instance):
+    global _bot_application
+    _bot_application = app_instance
+
+
 def main():
     if not BOT_TOKEN:
-        raise RuntimeError('متغیر BOT_TOKEN تنظیم نشده است.')
+        raise RuntimeError('BOT_TOKEN تنظیم نشده')
     if not DATABASE_URL:
-        raise RuntimeError('متغیر DATABASE_URL تنظیم نشده است.')
+        raise RuntimeError('DATABASE_URL تنظیم نشده')
     init_db()
     application = build_application()
-    log.info('RipperMods bot starting')
+    _set_bot_app(application)
+    log.info('Bot starting')
     application.run_polling(drop_pending_updates=False, close_loop=False, stop_signals=None)
 
 
 _bot_thread = None
-_bot_error = None
 
 
 def run_bot_thread():
-    global _bot_error
     try:
         asyncio.set_event_loop(asyncio.new_event_loop())
         main()
-    except Exception as exc:
-        _bot_error = exc
-        log.exception('Bot stopped during startup/runtime')
+    except Exception:
+        log.exception('Bot stopped')
 
 
 def _start_bot_thread_once():
@@ -2072,6 +1910,247 @@ def _start_bot_thread_once():
     _bot_thread.start()
 
 
+# ==================== API ENDPOINTS ====================
+
+def _get_user_from_token(cur, token: str) -> Optional[dict]:
+    """چک می‌کنه توکن معتبره و کاربر رو برمی‌گردونه"""
+    if not token:
+        return None
+    cur.execute(
+        "SELECT ws.*, u.reg_name, u.phone, u.username, u.first_name, u.wallet "
+        "FROM web_sessions ws JOIN users u ON ws.user_id=u.telegram_id "
+        "WHERE ws.session_token=%s AND ws.expires_at > now()",
+        (token,)
+    )
+    session = cur.fetchone()
+    if not session:
+        return None
+    # آپدیت last_used
+    cur.execute("UPDATE web_sessions SET last_used=now() WHERE id=%s", (session['id'],))
+    return session
+
+
+def _extract_token() -> str:
+    auth = request.headers.get('Authorization', '')
+    if auth.startswith('Bearer '):
+        return auth[7:].strip()
+    return ''
+
+
+@app.route('/api/auth/login', methods=['POST'])
+def api_login():
+    try:
+        data = request.get_json(silent=True) or {}
+        order_code = (data.get('order_code') or '').strip().upper()
+        connect_code = (data.get('connect_code') or '').strip()
+        
+        if not order_code or not connect_code:
+            return jsonify(success=False, error='کد پیگیری و کد اتصال هر دو الزامی هستن.'), 400
+        
+        with db() as conn:
+            with conn.cursor() as cur:
+                # چک کد اتصال
+                cur.execute(
+                    "SELECT * FROM connect_codes WHERE code=%s AND used=false AND expires_at > now()",
+                    (connect_code,)
+                )
+                cc = cur.fetchone()
+                if not cc:
+                    return jsonify(success=False, error='کد اتصال نامعتبر یا منقضی شده. لطفاً از ربات کد جدید بگیرید.'), 401
+                
+                user_id = cc['user_id']
+                
+                # چک کد پیگیری و مالکیت
+                cur.execute(
+                    "SELECT * FROM orders WHERE tracking_code=%s AND user_id=%s AND status IN ('approved','delivered')",
+                    (order_code, user_id)
+                )
+                order = cur.fetchone()
+                if not order:
+                    return jsonify(success=False, error='کد پیگیری نامعتبر یا این سفارش متعلق به شما نیست.'), 401
+                
+                # باطل کردن کد اتصال (یک بار مصرف)
+                cur.execute("UPDATE connect_codes SET used=true WHERE id=%s", (cc['id'],))
+                
+                # ساخت session
+                token = _gen_session_token()
+                expires = datetime.now(timezone.utc) + timedelta(hours=24)
+                cur.execute(
+                    "INSERT INTO web_sessions(user_id, session_token, expires_at) VALUES(%s, %s, %s)",
+                    (user_id, token, expires)
+                )
+                
+                # دریافت اطلاعات کاربر
+                cur.execute("SELECT reg_name, first_name, username FROM users WHERE telegram_id=%s", (user_id,))
+                uinfo = cur.fetchone()
+                name = (uinfo.get('reg_name') or uinfo.get('first_name') or 'کاربر') if uinfo else 'کاربر'
+        
+        audit(user_id, 'web_login', order_code, '')
+        return jsonify(success=True, session_token=token, user_name=name)
+    except Exception as e:
+        log.exception('api_login error')
+        return jsonify(success=False, error='خطای سرور'), 500
+
+
+@app.route('/api/me', methods=['GET'])
+def api_me():
+    try:
+        token = _extract_token()
+        with db() as conn:
+            with conn.cursor() as cur:
+                session = _get_user_from_token(cur, token)
+                if not session:
+                    return jsonify(success=False, error='نشست منقضی شده'), 401
+                return jsonify(
+                    success=True,
+                    user_name=session.get('reg_name') or session.get('first_name'),
+                    user_id=session['user_id']
+                )
+    except Exception:
+        log.exception('api_me error')
+        return jsonify(success=False, error='خطای سرور'), 500
+
+
+@app.route('/api/my-orders', methods=['GET'])
+def api_my_orders():
+    try:
+        token = _extract_token()
+        with db() as conn:
+            with conn.cursor() as cur:
+                session = _get_user_from_token(cur, token)
+                if not session:
+                    return jsonify(success=False, error='نشست منقضی شده'), 401
+                
+                user_id = session['user_id']
+                cur.execute(
+                    "SELECT id, tracking_code, product_name, amount, status, created_at, "
+                    "links_sent_via_portal, links_expires_at, is_upgrade "
+                    "FROM orders WHERE user_id=%s AND status IN ('approved','delivered') "
+                    "AND product_name NOT LIKE 'دریافت مجدد%%' ORDER BY created_at DESC",
+                    (user_id,)
+                )
+                rows = cur.fetchall()
+        
+        orders = []
+        for r in rows:
+            orders.append({
+                'id': r['id'],
+                'tracking_code': r['tracking_code'],
+                'product_name': r['product_name'],
+                'amount': int(r['amount']),
+                'status': r['status'],
+                'created_at': _fa_dt(r['created_at']),
+                'links_sent': bool(r.get('links_sent_via_portal')),
+                'links_expires_at': _fa_dt(r.get('links_expires_at')) if r.get('links_expires_at') else None,
+            })
+        return jsonify(success=True, orders=orders)
+    except Exception:
+        log.exception('api_my_orders error')
+        return jsonify(success=False, error='خطای سرور'), 500
+
+
+@app.route('/api/request-links', methods=['POST'])
+def api_request_links():
+    try:
+        token = _extract_token()
+        data = request.get_json(silent=True) or {}
+        order_id = data.get('order_id')
+        
+        if not order_id:
+            return jsonify(success=False, error='شناسه سفارش لازمه'), 400
+        
+        with db() as conn:
+            with conn.cursor() as cur:
+                session = _get_user_from_token(cur, token)
+                if not session:
+                    return jsonify(success=False, error='نشست منقضی شده'), 401
+                
+                user_id = session['user_id']
+                
+                # چک سفارش
+                cur.execute(
+                    "SELECT * FROM orders WHERE id=%s AND user_id=%s AND status IN ('approved','delivered')",
+                    (order_id, user_id)
+                )
+                order = cur.fetchone()
+                if not order:
+                    return jsonify(success=False, error='سفارش پیدا نشد یا متعلق به شما نیست'), 404
+                
+                # چک اینکه قبلاً لینک گرفته یا نه
+                if order.get('links_sent_via_portal'):
+                    return jsonify(success=False, error='لینک‌ها قبلاً یک بار ارسال شدن. برای دریافت مجدد با پشتیبانی تماس بگیرید.'), 400
+                
+                # چک انقضای ۵ روزه
+                links_exp = order.get('links_expires_at')
+                if links_exp and links_exp < datetime.now(timezone.utc):
+                    return jsonify(success=False, error='مهلت دریافت لینک (۵ روز) منقضی شده'), 400
+                
+                # دریافت لینک‌های محصول
+                product_name = order['product_name']
+                clean_name = product_name.replace('دریافت مجدد ', '')
+                cur.execute(
+                    "SELECT pl.link FROM product_links pl JOIN products p ON pl.product_id = p.id "
+                    "WHERE p.name ILIKE %s ORDER BY pl.id",
+                    (f"%{clean_name}%",)
+                )
+                links = [r['link'] for r in cur.fetchall()]
+                
+                if not links:
+                    return jsonify(success=False, error='لینکی برای این محصول تعریف نشده. با پشتیبانی تماس بگیرید.'), 500
+                
+                # ثبت در دیتابیس: links_sent = true
+                cur.execute("UPDATE orders SET links_sent_via_portal=true WHERE id=%s", (order_id,))
+        
+        # ارسال لینک‌ها به تلگرام کاربر
+        global _bot_application
+        if _bot_application and _bot_application.bot:
+            try:
+                expires_str = _fa_dt(order.get('links_expires_at')) if order.get('links_expires_at') else '—'
+                header = (
+                    f"📦 **لینک‌های {clean_name}**\n\n"
+                    f"🔢 کد پیگیری: {order['tracking_code']}\n\n"
+                    f"⚠️ این لینک‌ها بعد از {expires_str} منقضی می‌شن.\n"
+                    f"⚠️ فقط یک بار قابل دریافت هستن.\n\n"
+                )
+                # پیام اول: هدر
+                _bot_application.create_task(
+                    _bot_application.bot.send_message(user_id, header, parse_mode='Markdown')
+                )
+                # پیام دوم: فایل متنی حاوی لینک‌ها
+                file_content = f"⚠️ این لینک‌ها بعد از {expires_str} منقضی می‌شن.\n\n" + "\n".join(links)
+                file_io = io.BytesIO(file_content.encode('utf-8'))
+                file_io.name = f"RipperMods_{order['tracking_code']}.txt"
+                _bot_application.create_task(
+                    _bot_application.bot.send_document(
+                        user_id,
+                        document=InputFile(file_io, filename=f"RipperMods_{order['tracking_code']}.txt"),
+                        caption=f"✅ لینک‌های {clean_name}"
+                    )
+                )
+            except Exception as e:
+                log.exception(f'Failed to send links via telegram: {e}')
+                return jsonify(success=False, error='خطا در ارسال لینک‌ها به تلگرام. لطفاً بعداً تلاش کنید.'), 500
+        
+        audit(user_id, 'links_requested_portal', str(order_id), clean_name)
+        return jsonify(success=True, message='لینک‌ها به تلگرام شما ارسال شدن. چت ربات رو چک کنید.')
+    except Exception:
+        log.exception('api_request_links error')
+        return jsonify(success=False, error='خطای سرور'), 500
+
+
+@app.route('/api/auth/logout', methods=['POST'])
+def api_logout():
+    try:
+        token = _extract_token()
+        if token:
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("DELETE FROM web_sessions WHERE session_token=%s", (token,))
+        return jsonify(success=True)
+    except Exception:
+        return jsonify(success=True)
+
+
 if __name__ == '__main__':
     try:
         init_db()
@@ -2079,7 +2158,7 @@ if __name__ == '__main__':
         log.exception('init_db failed at startup')
     _start_bot_thread_once()
     port = int(os.getenv('PORT', '10000'))
-    log.info('Starting Flask health server on 0.0.0.0:%s', port)
+    log.info(f'Starting Flask on 0.0.0.0:{port}')
     app.run(host='0.0.0.0', port=port, use_reloader=False)
 else:
     try:
