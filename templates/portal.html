@@ -221,7 +221,7 @@ body:before{content:"";position:fixed;inset:0;pointer-events:none;background:rad
       });
       setToken(res.session_token);
       showNotice('✅ ورود موفق!', 'ok');
-      setTimeout(() => { window.location.reload(); }, 500);
+      window.location.href = '/dashboard';
     } catch (e) {
       showNotice('❌ ' + e.message);
       loginBtn.disabled = false;
@@ -232,12 +232,12 @@ body:before{content:"";position:fixed;inset:0;pointer-events:none;background:rad
   logoutBtn.addEventListener('click', async () => {
     try { await apiCall('/api/auth/logout', { method: 'POST' }); } catch (e) {}
     setToken(null);
-    window.location.reload();
+    window.location.href = '/portal';
   });
 
-  if (getToken()) {
+  if (getToken() && window.location.pathname === '/dashboard') {
     loadDashboard();
-  } else {
+  } else if (!getToken()) {
     loginView.classList.remove('hidden');
     dashboardView.classList.add('hidden');
   }
