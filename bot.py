@@ -985,41 +985,29 @@ def api_request_links():
                 cur.execute("SELECT pl.link FROM product_links pl JOIN products p ON pl.product_id = p.id WHERE p.name ILIKE %s ORDER BY pl.id", (f"%{clean_name}%",))
                 links = [r['link'] for r in cur.fetchall()]
                 if not links: return jsonify(success=False, error='لینکی تعریف نشده. با پشتیبانی تماس بگیرید.'), 500
+                
+                cur.execute("UPDATE orders SET links_sent_via_portal=true WHERE id=%s", (order_id,))
         
-        global _bot_application
-        if _bot_application and _bot_application.bot:
-            try:
-                expires_str = _fa_dt(order.get('links_expires_at')) if order.get('links_expires_at') else '—'
-                
-                header = (
-                    f"📦 **لینک‌های {clean_name}**\n\n"
-                    f"🔢 کد پیگیری: {order['tracking_code']}\n\n"
-                    f"🔒 **رمز فایل:** `t.me/rippermods`\n\n"
-                    f"⚠️ این لینک‌ها بعد از {expires_str} منقضی می‌شن.\n"
-                    f"⚠️ فقط یک بار قابل دریافت هستن.\n\n"
-                )
-                await _bot_application.bot.send_message(user_id, header, parse_mode='Markdown')
-                
-                file_content = (
-                    f"🔒 رمز فایل: t.me/rippermods\n"
-                    f"⚠️ این لینک‌ها بعد از {expires_str} منقضی می‌شن.\n\n"
-                    + "\n".join(links)
-                )
-                file_io = io.BytesIO(file_content.encode('utf-8'))
-                file_io.name = f"RipperMods_{order['tracking_code']}.txt"
-                await _bot_application.bot.send_document(
-                    user_id,
-                    document=InputFile(file_io, filename=f"RipperMods_{order['tracking_code']}.txt"),
-                    caption=f"✅ لینک‌های {clean_name}"
-                )
-                
-                with db() as conn:
-                    with conn.cursor() as cur:
-                        cur.execute("UPDATE orders SET links_sent_via_portal=true WHERE id=%s", (order_id,))
-                        
-            except Exception as e:
-                log.exception(f'Failed to send links via telegram: {e}')
-                return jsonify(success=False, error=f'خطا در ارسال به تلگرام: {str(e)}'), 500
+        try:
+            expires_str = _fa_dt(order.get('links_expires_at')) if order.get('links_expires_at') else '—'
+            header_text = (
+                f"📦 **لینک‌های {clean_name}**\n\n"
+                f"🔢 کد پیگیری: {order['tracking_code']}\n\n"
+                f"🔒 **رمز فایل:** `t.me/rippermods`\n\n"
+                f"⚠️ این لینک‌ها بعد از {expires_str} منقضی می‌شن.\n"
+                f"⚠️ فقط یک بار قابل دریافت هستن.\n\n"
+            )
+            requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={"chat_id": user_id, "text": header_text, "parse_mode": "Markdown"}, timeout=10)
+            
+            file_content = f"🔒 رمز فایل: t.me/rippermods\n⚠️ این لینک‌ها بعد از {expires_str} منقضی می‌شن.\n\n" + "\n".join(links)
+            file_io = io.BytesIO(file_content.encode('utf-8'))
+            file_io.name = f"RipperMods_{order['tracking_code']}.txt"
+            requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument", data={"chat_id": user_id, "caption": f"✅ لینک‌های {clean_name}"}, files={"document": file_io}, timeout=15)
+        except Exception as e:
+            log.exception(f'Failed to send via HTTP: {e}')
+            with db() as conn:
+                with conn.cursor() as cur: cur.execute("UPDATE orders SET links_sent_via_portal=false WHERE id=%s", (order_id,))
+            return jsonify(success=False, error=f'خطا در ارسال به تلگرام: {str(e)}'), 500
         
         audit(user_id, 'links_requested_portal', str(order_id), clean_name)
         return jsonify(success=True, message='لینک‌ها به تلگرام شما ارسال شدن. چت ربات رو چک کنید.')
