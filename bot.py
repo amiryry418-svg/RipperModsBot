@@ -61,19 +61,20 @@ PORT_ADMIN = _optional_int_env('PORT_ADMIN')
 ADMIN3 = _optional_int_env('ADMIN3')
 
 BASE_LINK = "https://dl2.megadl.click/PS4-Hacked/GTAV/CUSA00419/BASE/"
-REDOWNLOAD_PRICE = Decimal('150000')
 
 INSTALL_TUTORIAL = """
 🎮 **آموزش نصب پک GTA V (نسخه PS4/PS5)**
 
-پکیج‌های فعلی صرفاً روی نسخه PS4 بازی کار می‌کنند و روش نصب پکیج روی PS4 و PS5 یکسان است.
+پکیج‌های فعلی صرفاً روی نسخه PS4 بازی کار می‌کنند و روش نصب پکیج روی PS4 و PS5 یکسان است. به محض ساخت نسخه PS5، آموزش نصب آن هم اضافه خواهد شد.
 
 1️⃣ **بررسی نسخه:** ابتدا از نسخه بیس بازی خود اطمینان حاصل کنید که با بیس پیشنهادی ما یکی باشد.
 2️⃣ **دانلود:** برنامه (WinRAR) را داشته باشید. فایل‌های مربوط به ماد را دانلود کنید.
-3️⃣ **استخراج:** همه فایل‌ها را در یک پوشه قرار دهید، سپس روی پارت ۱ کلیک راست کرده و `Extract Here` را انتخاب کنید.
+3️⃣ **استخراج:** همه فایل‌ها را در یک پوشه قرار دهید، سپس روی پارت ۱ کلیک راست کرده و `Extract Here` را انتخاب کنید (نیازی به کار با پارت‌های دیگر نیست، خودش اتوماتیک تشخیص می‌دهد). منتظر بمانید تا فایل اکسترکت شود.
 4️⃣ **انتقال:** وقتی فایل واحد `.pkg` ساخته شد، یک هارد اکسترنال یا فلش حداقل ۶۴ گیگ با فرمت `exFAT` به کامپیوتر وصل کنید و فایل را داخل آن کپی کنید.
 5️⃣ **نصب روی کنسول:** فلش را به کنسول وصل کنید. وارد مسیر `Debug Settings / Package Installer` شوید و فایل را نصب کنید.
 """
+
+REDOWNLOAD_PRICE = Decimal('150000')
 
 _db_initialized = False
 _db_lock = threading.Lock()
@@ -338,9 +339,65 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     welcome = 'به فروشگاه RipperMods خوش آمدید 🌟\nاز منوی زیر گزینه موردنظر را انتخاب کنید.'
-    await update.effective_message.reply_text(welcome, reply_markup=main_keyboard())
-    if is_admin(u.id):
-        await update.effective_message.reply_text('پنل مدیریت:', reply_markup=admin_kb())
+    photo = os.getenv('WELCOME_PHOTO', '').strip()
+    try:
+        if photo: await update.effective_message.reply_photo(photo, caption=welcome, reply_markup=main_keyboard())
+        else: await update.effective_message.reply_text(welcome, reply_markup=main_keyboard())
+    except TelegramError: await update.effective_message.reply_text(welcome, reply_markup=main_keyboard())
+    if is_admin(u.id): await update.effective_message.reply_text('پنل مدیریت:', reply_markup=admin_kb())
+
+async def show_shop(update, context):
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton('🛍 سوپر پک', callback_data='shop:super_pack')], [InlineKeyboardButton('📦 پک ایرانیزه', callback_data='shop:iranian_pack')]])
+    await update.effective_message.reply_text('لطفاً یکی از پک‌های زیر را انتخاب کنید:', reply_markup=kb)
+
+async def show_product_details(update, context, p_name):
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT * FROM products WHERE name=%s AND active=true', (p_name,))
+            p = cur.fetchone()
+    if not p:
+        await update.effective_message.reply_text('محصول یافت نشد یا غیرفعال است.', reply_markup=main_keyboard())
+        return
+
+    base_price = Decimal(p['price'])
+    final_price = base_price
+    
+    coupon_code = context.user_data.get('coupon_code')
+    if coupon_code:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT * FROM coupons WHERE code=%s AND active=true AND (expires_at IS NULL OR expires_at>now())", (coupon_code.upper(),))
+                cp = cur.fetchone()
+        if cp and cp['discount_type'] == 'percent':
+            discount = base_price * (cp['value'] / Decimal(100))
+            final_price = base_price - discount
+            final_price = max(Decimal('0'), final_price).quantize(Decimal('0.01'))
+
+    text = f"🛍 {p['name']}\n{p['description']}\n"
+    if coupon_code and final_price < base_price:
+        text += f"❌ قیمت اصلی: {int(base_price):,} تومان\n"
+        text += f"✅ قیمت با تخفیف ({coupon_code}): {int(final_price):,} تومان"
+    else:
+        text += f"💵 قیمت: {int(final_price):,} تومان"
+        
+    if p['name'] == 'پک ایرانیزه':
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton('خرید با کیف پول', callback_data=f"buyw:{p['id']}"), InlineKeyboardButton('پرداخت کارت‌به‌کارت', callback_data=f"buyc:{p['id']}")],
+            [InlineKeyboardButton('🚀 ارتقا از V1', callback_data=f"upgrade:{p['id']}")],
+            [InlineKeyboardButton('🎟 وارد کردن کد تخفیف', callback_data=f"appcpn:{p['id']}")]
+        ])
+        photo = 'https://s31.uupload.ir/files/rippermodsgtavv100/Amir/4/IMG_20261021_205807_285.jpg'
+    else:
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton('خرید با کیف پول', callback_data=f"buyw:{p['id']}"), InlineKeyboardButton('پرداخت کارت‌به‌کارت', callback_data=f"buyc:{p['id']}")],
+            [InlineKeyboardButton('🎟 وارد کردن کد تخفیف', callback_data=f"appcpn:{p['id']}")]
+        ])
+        photo = 'https://s50.uupload.ir/files/rippermodsgtavv100/Amir/IMG_20261021_205811_651.jpg' if p['name'] == 'سوپر پک' else ''
+        
+    try:
+        if photo: await update.effective_message.reply_photo(photo, caption=text, reply_markup=kb)
+        else: await update.effective_message.reply_text(text, reply_markup=kb)
+    except TelegramError: await update.effective_message.reply_text(text, reply_markup=kb)
 
 async def send_portal_access(context: ContextTypes.DEFAULT_TYPE, user_id: int, order_id: int, product_name: str, tracking_code: str):
     if not BASE_URL: return
@@ -352,26 +409,14 @@ async def send_portal_access(context: ContextTypes.DEFAULT_TYPE, user_id: int, o
     portal_url = f"{BASE_URL}/portal"
     expires_str = _fa_dt(expires_at)
     msg = (
-        f"🎉 سفارش شما تایید و تحویل داده شد!\n\n"
-        f"📦 محصول: {product_name}\n"
-        f"🔢 کد پیگیری: {tracking_code}\n\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"🔑 کد اتصال پورتال: {connect_code}\n"
-        f"⏱ اعتبار: ۱۰ دقیقه (بعد از این زمان منقضی می‌شه)\n"
-        f"━━━━━━━━━━━━━━━━━━\n\n"
-        f"🌐 برای دریافت لینک‌های دانلود، به پورتال برو:\n"
-        f"{portal_url}\n\n"
-        f"📝 مراحل:\n"
-        f"۱. به آدرس بالا برو\n"
-        f"۲. کد پیگیری: {tracking_code}\n"
-        f"۳. کد اتصال: {connect_code}\n"
-        f"۴. وارد شو و روی «📥 دریافت لینک» بزن\n\n"
-        f"⚠️ نکات مهم:\n"
-        f"• لینک‌ها تا {expires_str} اعتبار دارن (۵ روز)\n"
-        f"• لینک‌ها فقط یک بار قابل دریافت هستن\n"
-        f"• اگه کد ۱۰ دقیقه‌ای منقضی شد، از منوی ربات «🌐 ورود به پورتال» رو بزن تا کد جدید بگیری"
+        f"🎉 سفارش شما تایید و تحویل داده شد!\n\n📦 محصول: {product_name}\n🔢 کد پیگیری: {tracking_code}\n\n"
+        f"━━━━━━━━━━━━━━━━━━\n🔑 کد اتصال پورتال: {connect_code}\n⏱ اعتبار: ۱۰ دقیقه\n━━━━━━━━━━━━━━━━━━\n\n"
+        f"🌐 برای دریافت لینک‌ها به پورتال برو:\n{portal_url}\n\n"
+        f"📝 کد پیگیری: {tracking_code}\n📝 کد اتصال: {connect_code}\n\n"
+        f"🔒 **رمز فایل:** `t.me/rippermods`\n\n"
+        f"⚠️ لینک‌ها تا {expires_str} اعتبار دارن (۵ روز)\n⚠️ فقط یک بار قابل دریافت هستن"
     )
-    try: await context.bot.send_message(user_id, msg, disable_web_page_preview=True)
+    try: await context.bot.send_message(user_id, msg, disable_web_page_preview=True, parse_mode='Markdown')
     except TelegramError as e: log.error(f'Failed to send portal access: {e}')
 
 async def review_topup(q, context, rid, decision, admin_id):
@@ -562,7 +607,8 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 with db() as conn:
                     with conn.cursor() as cur:
                         cur.execute('SELECT wallet FROM users WHERE telegram_id=%s FOR UPDATE', (uid,))
-                        if not cur.fetchone() or cur.fetchone()['wallet'] < amount: await q.message.reply_text('موجودی کافی نیست.'); return
+                        u = cur.fetchone()
+                        if not u or u['wallet'] < amount: await q.message.reply_text('موجودی کافی نیست.'); return
                         cur.execute('UPDATE users SET wallet=wallet-%s WHERE telegram_id=%s', (amount, uid))
                         tc = _unique_tracking_code(cur, 'orders')
                         cur.execute("INSERT INTO orders(user_id,product_id,product_name,amount,payment_method,status,wallet_debited,delivery_sent,is_upgrade,tracking_code) VALUES(%s,%s,%s,%s,'wallet','approved',true,false,false,%s) RETURNING id", (uid, pid, f"دریافت مجدد {p['name']}", amount, tc))
@@ -935,6 +981,7 @@ def api_request_links():
         data = request.get_json(silent=True) or {}
         order_id = data.get('order_id')
         if not order_id: return jsonify(success=False, error='شناسه سفارش لازمه'), 400
+        
         with db() as conn:
             with conn.cursor() as cur:
                 session = _get_user_from_token(cur, _extract_token())
@@ -945,25 +992,54 @@ def api_request_links():
                 if not order: return jsonify(success=False, error='سفارش یافت نشد'), 404
                 if order.get('links_sent_via_portal'): return jsonify(success=False, error='قبلاً ارسال شده. با پشتیبانی تماس بگیرید.'), 400
                 links_exp = order.get('links_expires_at')
-                if links_exp and links_exp < datetime.now(timezone.utc): return jsonify(success=False, error='مهلت تمام شده'), 400
+                if links_exp and links_exp < datetime.now(timezone.utc): return jsonify(success=False, error='مهلت ۵ روزه تمام شده'), 400
+                
                 clean_name = order['product_name'].replace('دریافت مجدد ', '')
                 cur.execute("SELECT pl.link FROM product_links pl JOIN products p ON pl.product_id = p.id WHERE p.name ILIKE %s ORDER BY pl.id", (f"%{clean_name}%",))
                 links = [r['link'] for r in cur.fetchall()]
-                if not links: return jsonify(success=False, error='لینکی تعریف نشده'), 500
+                if not links: return jsonify(success=False, error='لینکی تعریف نشده. با پشتیبانی تماس بگیرید.'), 500
+                
                 cur.execute("UPDATE orders SET links_sent_via_portal=true WHERE id=%s", (order_id,))
         
         global _bot_application
         if _bot_application and _bot_application.bot:
             try:
                 expires_str = _fa_dt(order.get('links_expires_at')) if order.get('links_expires_at') else '—'
-                header = f"📦 **لینک‌های {clean_name}**\n\n🔢 کد پیگیری: {order['tracking_code']}\n\n⚠️ اعتبار تا {expires_str}\n⚠️ فقط یک بار\n\n"
-                _bot_application.create_task(_bot_application.bot.send_message(user_id, header, parse_mode='Markdown'))
-                file_content = f"⚠️ اعتبار تا {expires_str}\n\n" + "\n".join(links)
+                
+                header = (
+                    f"📦 **لینک‌های {clean_name}**\n\n"
+                    f"🔢 کد پیگیری: {order['tracking_code']}\n\n"
+                    f"🔒 **رمز فایل:** `t.me/rippermods`\n\n"
+                    f"⚠️ این لینک‌ها بعد از {expires_str} منقضی می‌شن.\n"
+                    f"⚠️ فقط یک بار قابل دریافت هستن.\n\n"
+                )
+                _bot_application.create_task(
+                    _bot_application.bot.send_message(user_id, header, parse_mode='Markdown')
+                )
+                
+                file_content = (
+                    f"🔒 رمز فایل: t.me/rippermods\n"
+                    f"⚠️ این لینک‌ها بعد از {expires_str} منقضی می‌شن.\n\n"
+                    + "\n".join(links)
+                )
                 file_io = io.BytesIO(file_content.encode('utf-8'))
-                _bot_application.create_task(_bot_application.bot.send_document(user_id, document=InputFile(file_io, filename=f"RipperMods_{order['tracking_code']}.txt"), caption=f"✅ لینک‌های {clean_name}"))
-            except Exception as e: return jsonify(success=False, error='خطا در ارسال به تلگرام'), 500
-        return jsonify(success=True, message='لینک‌ها به تلگرام ارسال شدن.')
-    except Exception: return jsonify(success=False, error='خطای سرور'), 500
+                file_io.name = f"RipperMods_{order['tracking_code']}.txt"
+                _bot_application.create_task(
+                    _bot_application.bot.send_document(
+                        user_id,
+                        document=InputFile(file_io, filename=f"RipperMods_{order['tracking_code']}.txt"),
+                        caption=f"✅ لینک‌های {clean_name}"
+                    )
+                )
+            except Exception as e:
+                log.exception(f'Failed to send links via telegram: {e}')
+                return jsonify(success=False, error='خطا در ارسال لینک‌ها به تلگرام. لطفاً بعداً تلاش کنید.'), 500
+        
+        audit(user_id, 'links_requested_portal', str(order_id), clean_name)
+        return jsonify(success=True, message='لینک‌ها به تلگرام شما ارسال شدن. چت ربات رو چک کنید.')
+    except Exception:
+        log.exception('api_request_links error')
+        return jsonify(success=False, error='خطای سرور'), 500
 
 @app.route('/api/auth/logout', methods=['POST'])
 def api_logout():
