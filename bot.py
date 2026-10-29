@@ -760,6 +760,40 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text('🎮 **بخش ترینرهای PS4**', reply_markup=kb, parse_mode='Markdown'); return
 
     try:
+        if flow == 'adm_track' and is_admin(u.id):
+            code = text.strip().upper()
+            context.user_data.clear()
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT o.*, u.reg_name, u.phone, u.username, u.first_name FROM orders o LEFT JOIN users u ON o.user_id=u.telegram_id WHERE o.tracking_code=%s", (code,))
+                    order = cur.fetchone()
+            if not order:
+                await msg.reply_text('❌ با این کد پیگیری چیزی پیدا نشد.', reply_markup=main_keyboard())
+                return
+            status_map = {'pending':'⏳ در انتظار','approved':'✅ تایید','rejected':'❌ رد','delivered':'📦 تحویل','cancelled':'🚫 لغو'}
+            name = order.get('reg_name') or order.get('first_name') or 'ناشناس'
+            uname = f"@{order['username']}" if order.get('username') else 'بدون‌یوزرنیم'
+            info = (
+                f"📦 **جزئیات سفارش**\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"🔢 کد پیگیری: {order['tracking_code']}\n"
+                f"🆔 شماره: #{order['id']}\n"
+                f"👤 نام: {name}\n"
+                f"🔗 یوزرنیم: {uname}\n"
+                f"🆔 آیدی: {order['user_id']}\n"
+                f"📱 تلفن: {order.get('phone') or 'نامشخص'}\n"
+                f"📦 محصول: {order['product_name']}\n"
+                f"💰 مبلغ: {int(order['amount']):,} تومان\n"
+                f"💳 روش: {'کیف پول' if order['payment_method']=='wallet' else 'کارت‌به‌کارت'}\n"
+                f"📊 وضعیت: {status_map.get(order['status'], order['status'])}\n"
+                f"📅 زمان ثبت: {_fa_dt(order['created_at'])}\n"
+                f"📅 زمان بررسی: {_fa_dt(order['reviewed_at']) if order.get('reviewed_at') else '—'}\n"
+                f"✅ لینک ارسال شده: {'بله' if order.get('links_sent_via_portal') else 'خیر'}\n"
+                f"━━━━━━━━━━━━━━━━━━"
+            )
+            await msg.reply_text(info, reply_markup=main_keyboard(), parse_mode='Markdown')
+            return
+
         if flow == 'topup_amount':
             amount = Decimal(text); context.user_data['topup_amount'] = amount; context.user_data['flow'] = 'topup_amount_confirm'
             card = os.getenv('CARD_NUMBER', 'تنظیم نشده'); holder = os.getenv('CARD_HOLDER', 'تنظیم نشده')
@@ -950,8 +984,6 @@ def api_request_links():
                 cur.execute("SELECT pl.link FROM product_links pl JOIN products p ON pl.product_id = p.id WHERE p.name ILIKE %s ORDER BY pl.id", (f"%{clean_name}%",))
                 links = [r['link'] for r in cur.fetchall()]
                 if not links: return jsonify(success=False, error='لینکی تعریف نشده. با پشتیبانی تماس بگیرید.'), 500
-                
-                cur.execute("UPDATE orders SET links_sent_via_portal=true WHERE id=%s", (order_id,))
         
         global _bot_application
         if _bot_application and _bot_application.bot:
@@ -965,9 +997,7 @@ def api_request_links():
                     f"⚠️ این لینک‌ها بعد از {expires_str} منقضی می‌شن.\n"
                     f"⚠️ فقط یک بار قابل دریافت هستن.\n\n"
                 )
-                _bot_application.create_task(
-                    _bot_application.bot.send_message(user_id, header, parse_mode='Markdown')
-                )
+                await _bot_application.bot.send_message(user_id, header, parse_mode='Markdown')
                 
                 file_content = (
                     f"🔒 رمز فایل: t.me/rippermods\n"
@@ -976,22 +1006,25 @@ def api_request_links():
                 )
                 file_io = io.BytesIO(file_content.encode('utf-8'))
                 file_io.name = f"RipperMods_{order['tracking_code']}.txt"
-                _bot_application.create_task(
-                    _bot_application.bot.send_document(
-                        user_id,
-                        document=InputFile(file_io, filename=f"RipperMods_{order['tracking_code']}.txt"),
-                        caption=f"✅ لینک‌های {clean_name}"
-                    )
+                await _bot_application.bot.send_document(
+                    user_id,
+                    document=InputFile(file_io, filename=f"RipperMods_{order['tracking_code']}.txt"),
+                    caption=f"✅ لینک‌های {clean_name}"
                 )
+                
+                with db() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("UPDATE orders SET links_sent_via_portal=true WHERE id=%s", (order_id,))
+                        
             except Exception as e:
                 log.exception(f'Failed to send links via telegram: {e}')
-                return jsonify(success=False, error='خطا در ارسال لینک‌ها به تلگرام. لطفاً بعداً تلاش کنید.'), 500
+                return jsonify(success=False, error=f'خطا در ارسال به تلگرام: {str(e)}'), 500
         
         audit(user_id, 'links_requested_portal', str(order_id), clean_name)
         return jsonify(success=True, message='لینک‌ها به تلگرام شما ارسال شدن. چت ربات رو چک کنید.')
-    except Exception:
+    except Exception as e:
         log.exception('api_request_links error')
-        return jsonify(success=False, error='خطای سرور'), 500
+        return jsonify(success=False, error=f'خطای سرور: {str(e)}'), 500
 
 @app.route('/api/auth/logout', methods=['POST'])
 def api_logout():
