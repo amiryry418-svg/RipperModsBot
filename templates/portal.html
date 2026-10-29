@@ -21,10 +21,9 @@ body:before{content:"";position:fixed;inset:0;pointer-events:none;background:rad
 .field label{display:block;font-size:12px;margin-bottom:8px;font-weight:700}
 .field input{width:100%;height:49px;border:1px solid #ffffff20;border-radius:11px;background:#090a0e;color:white;padding:0 14px;outline:none;font-size:15px}
 .field input:focus{border-color:#f12735a6;box-shadow:0 0 0 3px #f127351b}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:13px 18px;border:0;border-radius:12px;font-weight:800;font-size:15px;cursor:pointer;transition:.2s}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:13px 18px;border:0;border-radius:12px;font-weight:800;font-size:15px;cursor:pointer;transition:.2s;text-decoration:none}
 .btn-primary{background:linear-gradient(135deg,#ff3442,#b70c20);color:white}
 .btn-primary:hover{transform:translateY(-2px)}
-.btn-primary:disabled{opacity:.5;cursor:not-allowed;transform:none}
 .btn-secondary{background:#ffffff08;color:#eee;border:1px solid var(--line)}
 .notice{display:none;padding:12px;border-radius:10px;margin-top:14px;font-size:13px}
 .notice.show{display:block}
@@ -57,14 +56,15 @@ body:before{content:"";position:fixed;inset:0;pointer-events:none;background:rad
   <div id="loginView" class="card">
     <h2>ورود به پورتال مشتریان</h2>
     <p class="sub">با کد پیگیری سفارش و کد اتصال تلگرام وارد شوید.</p>
-    <form id="loginForm">
+    <!-- دقت کن: اکشن فرم مستقیما به API وصله -->
+    <form id="loginForm" action="/api/auth/login" method="POST">
       <div class="field">
         <label for="orderCode">کد پیگیری سفارش</label>
-        <input id="orderCode" name="orderCode" placeholder="مثال: RM-4827" autocomplete="off" required>
+        <input id="orderCode" name="order_code" placeholder="مثال: RM-4827" autocomplete="off" required>
       </div>
       <div class="field">
         <label for="connectCode">کد اتصال تلگرام</label>
-        <input id="connectCode" name="connectCode" placeholder="کد ۶ رقمی" autocomplete="off" required maxlength="6">
+        <input id="connectCode" name="connect_code" placeholder="کد ۶ رقمی" autocomplete="off" required maxlength="6">
       </div>
       <button class="btn btn-primary" type="submit" id="loginBtn">ورود</button>
       <div class="notice" id="loginNotice"></div>
@@ -205,6 +205,7 @@ body:before{content:"";position:fixed;inset:0;pointer-events:none;background:rad
     });
   }
 
+  // این بخش برای وقتیه که کاربر فرم رو سابمیت می‌کنه (Native)
   loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const order_code = document.getElementById('orderCode').value.trim();
@@ -214,16 +215,26 @@ body:before{content:"";position:fixed;inset:0;pointer-events:none;background:rad
     }
     loginBtn.disabled = true;
     loginBtn.textContent = 'در حال بررسی...';
+    
     try {
-      const res = await apiCall('/api/auth/login', {
+      // درخواست به API
+      const res = await fetch('/api/auth/login', {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ order_code, connect_code })
       });
-      setToken(res.session_token);
-      showNotice('✅ ورود موفق!', 'ok');
+      const data = await res.json();
+      
+      if (!res.ok) throw new Error(data.error || 'خطای ورود');
+      
+      // ذخیره توکن
+      setToken(data.session_token);
+      
+      // رفتن به داشبورد
       window.location.href = '/dashboard';
-    } catch (e) {
-      showNotice('❌ ' + e.message);
+      
+    } catch (err) {
+      showNotice('❌ ' + err.message);
       loginBtn.disabled = false;
       loginBtn.textContent = 'ورود';
     }
@@ -235,9 +246,10 @@ body:before{content:"";position:fixed;inset:0;pointer-events:none;background:rad
     window.location.href = '/portal';
   });
 
-  if (getToken() && window.location.pathname === '/dashboard') {
+  // اگه توکن داریم، داشبورد رو لود کن
+  if (getToken()) {
     loadDashboard();
-  } else if (!getToken()) {
+  } else {
     loginView.classList.remove('hidden');
     dashboardView.classList.add('hidden');
   }
