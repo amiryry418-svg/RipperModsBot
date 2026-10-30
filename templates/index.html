@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}صفحه اصلی{% endblock %}
+{% block content %}
+<div style="text-align: center; padding: 60px 20px;">
+    <h1 style="font-size: 3rem; margin-bottom: 20px; text-shadow: 0 0 20px rgba(0,229,255,0.5);">به <span style="color: var(--primary);">RipperMods</span> خوش آمدید</h1>
+    <p style="color: var(--text-muted); font-size: 1.2rem; margin-bottom: 40px; max-width: 600px; margin-left: auto; margin-right: auto;">
+        فروشگاه تخصصی پک‌های ماد و ترینرهای بازی GTA V برای کنسول PS4/PS5. بهترین کیفیت، بهترین قیمت.
+    </p>
+    <div style="display: flex; gap: 20px; justify-content: center; flex-wrap: wrap;">
+        <a href="/shop" class="btn" style="font-size: 1.1rem; padding: 12px 30px;">🛍 مشاهده فروشگاه</a>
+        {% if not current_user %}
+        <a href="/register" class="btn btn-accent" style="font-size: 1.1rem; padding: 12px 30px;">📝 ثبت‌نام سریع</a>
+        {% endif %}
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-top: 60px;">
+    <div class="card" style="text-align: center;">
+        <h3 style="color: var(--primary); margin-bottom: 10px;">🎮 پک‌های اورجینال</h3>
+        <p style="color: var(--text-muted);">بهترین پک‌های ماد GTA V با لینک مستقیم و پرسرعت.</p>
+    </div>
+    <div class="card" style="text-align: center;">
+        <h3 style="color: var(--primary); margin-bottom: 10px;">⚡ تحویل فوری</h3>
+        <p style="color: var(--text-muted);">پس از تایید پرداخت، لینک‌ها بلافاصله برای شما ارسال می‌شود.</p>
+    </div>
+    <div class="card" style="text-align: center;">
+        <h3 style="color: var(--primary); margin-bottom: 10px;">💬 پشتیبانی ۲۴/۷</h3>
+        <p style="color: var(--text-muted);">تیم پشتیبانی ما همیشه آماده کمک به شماست.</p>
+    </div>
+</div>
+{% endblock %}
