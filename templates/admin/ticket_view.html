@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}مدیریت تیکت #{{ ticket.id }}{% endblock %}
+{% block content %}
+<div style="max-width: 800px; margin: 0 auto;">
+    <a href="/admin" style="display: inline-block; margin-bottom: 20px;">← بازگشت به پنل مدیریت</a>
+    
+    <div class="card" style="margin-bottom: 20px; border-color: var(--accent);">
+        <h2 style="color: var(--accent); margin-bottom: 10px;">🎫 {{ ticket.subject }}</h2>
+        <p style="color: var(--text-muted); font-size: 0.9rem;">کاربر: {{ ticket.email }} | وضعیت: {{ ticket.status }}</p>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 15px; margin-bottom: 20px;">
+        {% for m in messages %}
+            {% if m.sender_type == 'user' %}
+                <div style="align-self: flex-start; background: rgba(255, 0, 85, 0.05); border: 1px solid var(--accent); padding: 12px 18px; border-radius: 12px 12px 0 12px; max-width: 80%;">
+                    <p style="color: var(--accent); font-size: 0.8rem; margin-bottom: 5px;">👤 کاربر</p>
+                    <p style="line-height: 1.6; white-space: pre-wrap;">{{ m.message_text }}</p>
+                </div>
+            {% else %}
+                <div style="align-self: flex-end; background: var(--card-bg); border: 1px solid rgba(255,255,255,0.1); padding: 12px 18px; border-radius: 12px 12px 12px 0; max-width: 80%;">
+                    <p style="color: var(--primary); font-size: 0.8rem; margin-bottom: 5px;">🛡 پاسخ ادمین</p>
+                    <p style="line-height: 1.6; white-space: pre-wrap;">{{ m.message_text }}</p>
+                </div>
+            {% endif %}
+        {% endfor %}
+    </div>
+
+    <div class="card">
+        <form method="POST">
+            <div class="form-group">
+                <label>پاسخ شما (به صورت ناشناس نمایش داده می‌شود):</label>
+                <textarea name="message" class="form-control" rows="4" required placeholder="پاسخ خود را بنویسید..."></textarea>
+            </div>
+            <button type="submit" class="btn btn-accent">ارسال پاسخ به کاربر</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
