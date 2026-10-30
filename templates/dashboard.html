@@ -11,47 +11,66 @@
     <p style="color: var(--text-muted);">ایمیل: {{ user.email }}</p>
 </div>
 
-<h2 style="color: var(--primary); margin-bottom: 20px;">📦 سفارش‌های شما</h2>
+<div style="display: grid; grid-template-columns: 2fr 1fr; gap: 30px; align-items: start;">
+    <div>
+        <h2 style="color: var(--primary); margin-bottom: 20px;">📦 سفارش‌های شما</h2>
+        {% if orders %}
+        <div style="overflow-x: auto;">
+            <table style="width: 100%; border-collapse: collapse; background: var(--card-bg); border-radius: 8px; overflow: hidden;">
+                <thead style="background: rgba(0, 229, 255, 0.1);">
+                    <tr>
+                        <th style="padding: 15px; text-align: right; color: var(--primary);">کد پیگیری</th>
+                        <th style="padding: 15px; text-align: right; color: var(--primary);">محصول</th>
+                        <th style="padding: 15px; text-align: right; color: var(--primary);">وضعیت</th>
+                        <th style="padding: 15px; text-align: right; color: var(--primary);">عملیات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for o in orders %}
+                    <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                        <td style="padding: 15px;" dir="ltr">{{ o.tracking_code }}</td>
+                        <td style="padding: 15px;">{{ o.product_name }}</td>
+                        <td style="padding: 15px;">
+                            {% if o.status == 'pending' %}<span style="color: #ffaa00;">⏳ در انتظار</span>
+                            {% elif o.status == 'approved' or o.status == 'delivered' %}<span style="color: var(--success);">✅ تحویل</span>
+                            {% else %}<span style="color: var(--error);">❌ رد شده</span>{% endif %}
+                        </td>
+                        <td style="padding: 15px;">
+                            <a href="/order/{{ o.id }}" class="btn" style="padding: 5px 10px; font-size: 0.85rem;">مشاهده</a>
+                            {% if o.status == 'delivered' and not o.is_redownload %}
+                                <a href="/redownload/{{ o.product_id }}" class="btn btn-accent" style="padding: 5px 10px; font-size: 0.85rem; margin-right: 5px;">🔄 دریافت مجدد</a>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="card" style="text-align: center; padding: 40px;"><p style="color: var(--text-muted);">هنوز سفارشی ندارید.</p></div>
+        {% endif %}
+    </div>
 
-{% if orders %}
-<div style="overflow-x: auto;">
-    <table style="width: 100%; border-collapse: collapse; background: var(--card-bg); border-radius: 8px; overflow: hidden;">
-        <thead style="background: rgba(0, 229, 255, 0.1);">
-            <tr>
-                <th style="padding: 15px; text-align: right; color: var(--primary);">کد پیگیری</th>
-                <th style="padding: 15px; text-align: right; color: var(--primary);">محصول</th>
-                <th style="padding: 15px; text-align: right; color: var(--primary);">مبلغ</th>
-                <th style="padding: 15px; text-align: right; color: var(--primary);">وضعیت</th>
-                <th style="padding: 15px; text-align: right; color: var(--primary);">تاریخ</th>
-                <th style="padding: 15px; text-align: right; color: var(--primary);">جزئیات</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for o in orders %}
-            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
-                <td style="padding: 15px;" dir="ltr">{{ o.tracking_code }}</td>
-                <td style="padding: 15px;">{{ o.product_name }}</td>
-                <td style="padding: 15px;">{{ "{:,}".format(o.amount|int) }} تومان</td>
-                <td style="padding: 15px;">
-                    {% if o.status == 'pending' %}
-                        <span style="color: #ffaa00;">⏳ در انتظار</span>
-                    {% elif o.status == 'approved' or o.status == 'delivered' %}
-                        <span style="color: var(--success);">✅ تحویل شده</span>
-                    {% else %}
-                        <span style="color: var(--error);">❌ رد شده</span>
-                    {% endif %}
-                </td>
-                <td style="padding: 15px;">{{ o.created_at.strftime('%Y/%m/%d') }}</td>
-                <td style="padding: 15px;"><a href="/order/{{ o.id }}" class="btn" style="padding: 5px 10px; font-size: 0.85rem;">مشاهده</a></td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+    <div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h2 style="color: var(--primary);">🎫 تیکت‌های پشتیبانی</h2>
+            <a href="/ticket/new" class="btn" style="font-size: 0.85rem; padding: 6px 12px;">+ تیکت جدید</a>
+        </div>
+        {% if tickets %}
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+                {% for t in tickets %}
+                    <a href="/ticket/{{ t.id }}" style="display: block; background: var(--card-bg); padding: 15px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); transition: 0.2s;" onmouseover="this.style.borderColor='var(--primary)'" onmouseout="this.style.borderColor='rgba(255,255,255,0.05)'">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                            <strong style="color: var(--text-main);">{{ t.subject }}</strong>
+                            {% if t.status == 'answered' %}<span style="color: var(--success); font-size: 0.8rem;">پاسخ جدید</span>
+                            {% elif t.status == 'open' %}<span style="color: #ffaa00; font-size: 0.8rem;">در انتظار</span>{% endif %}
+                        </div>
+                    </a>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="card" style="text-align: center; padding: 20px;"><p style="color: var(--text-muted); font-size: 0.9rem;">تیکتی ندارید.</p></div>
+        {% endif %}
+    </div>
 </div>
-{% else %}
-<div class="card" style="text-align: center; padding: 40px;">
-    <p style="color: var(--text-muted); margin-bottom: 20px;">هنوز سفارشی ثبت نکرده‌اید.</p>
-    <a href="/shop" class="btn">🛍 مشاهده فروشگاه</a>
-</div>
-{% endif %}
 {% endblock %}
