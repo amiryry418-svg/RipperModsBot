@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}پرداخت{% endblock %}
+{% block content %}
+<div style="max-width: 600px; margin: 0 auto;">
+    <div class="card">
+        <h2 style="color: var(--primary); margin-bottom: 20px;">💳 تکمیل خرید</h2>
+        
+        <div style="background: rgba(0, 229, 255, 0.05); border: 1px solid rgba(0, 229, 255, 0.2); border-radius: 8px; padding: 20px; margin-bottom: 25px;">
+            <p style="margin-bottom: 5px;"><strong>محصول:</strong> {{ product.name }}</p>
+            <p style="font-size: 1.2rem; color: var(--success); font-weight: 700;">مبلغ قابل پرداخت: {{ "{:,}".format(product.price|int) }} تومان</p>
+        </div>
+
+        <div style="background: rgba(255, 0, 85, 0.05); border: 1px dashed var(--accent); border-radius: 8px; padding: 20px; margin-bottom: 25px; text-align: center;">
+            <p style="color: var(--text-muted); margin-bottom: 10px;">مبلغ را به کارت زیر واریز کنید:</p>
+            <p style="font-size: 1.4rem; font-weight: bold; letter-spacing: 2px; margin-bottom: 5px;" dir="ltr">{{ card_number }}</p>
+            <p style="color: var(--text-main);">به نام: {{ card_holder }}</p>
+        </div>
+
+        <form method="POST" enctype="multipart/form-data">
+            <div class="form-group">
+                <label>تصویر رسید پرداخت (حداکثر ۵ مگابایت)</label>
+                <input type="file" name="receipt" class="form-control" accept="image/*" required style="padding: 8px;">
+            </div>
+            <button type="submit" class="btn" style="width: 100%; padding: 12px; font-size: 1.05rem;">✅ ثبت سفارش</button>
+        </form>
+        
+        <p style="text-align: center; margin-top: 20px; font-size: 0.85rem; color: var(--text-muted);">
+            پس از بررسی رسید توسط ادمین، لینک‌های دانلود برای شما ارسال می‌شود.
+        </p>
+    </div>
+</div>
+{% endblock %}
