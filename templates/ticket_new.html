@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}تیکت جدید{% endblock %}
+{% block content %}
+<div style="max-width: 600px; margin: 0 auto;">
+    <a href="/dashboard" style="display: inline-block; margin-bottom: 20px;">← بازگشت به داشبورد</a>
+    <div class="card">
+        <h2 style="color: var(--primary); margin-bottom: 20px;">📩 ثبت تیکت جدید</h2>
+        <form method="POST">
+            <div class="form-group">
+                <label>موضوع</label>
+                <input type="text" name="subject" class="form-control" required placeholder="مثلاً: مشکل در دانلود فایل">
+            </div>
+            <div class="form-group">
+                <label>متن پیام</label>
+                <textarea name="message" class="form-control" rows="6" required placeholder="توضیحات خود را وارد کنید..."></textarea>
+            </div>
+            <button type="submit" class="btn" style="width: 100%; padding: 12px;">ارسال تیکت</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
