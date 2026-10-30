@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}فروشگاه{% endblock %}
+{% block content %}
+<h1 style="margin-bottom: 30px; color: var(--primary); text-align: center;">🛍 فروشگاه محصولات</h1>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 25px;">
+    {% for p in products %}
+    <div class="card" style="display: flex; flex-direction: column; justify-content: space-between;">
+        <div>
+            <h3 style="color: var(--primary); margin-bottom: 10px;">{{ p.name }}</h3>
+            <p style="color: var(--text-muted); margin-bottom: 20px; line-height: 1.6;">{{ p.description }}</p>
+        </div>
+        <div>
+            <p style="font-size: 1.4rem; font-weight: 700; margin-bottom: 20px;">
+                {% if p.price > 0 %}{{ "{:,}".format(p.price|int) }} <span style="font-size: 0.9rem; color: var(--text-muted);">تومان</span>{% else %}رایگان{% endif %}
+            </p>
+            {% if p.active %}
+            <a href="/shop/{{ p.id }}" class="btn" style="width: 100%;">مشاهده و خرید</a>
+            {% else %}
+            <button class="btn" style="width: 100%; opacity: 0.5; cursor: not-allowed;" disabled>به زودی...</button>
+            {% endif %}
+        </div>
+    </div>
+    {% else %}
+    <p style="text-align: center; grid-column: 1 / -1; color: var(--text-muted);">هیچ محصولی موجود نیست.</p>
+    {% endfor %}
+</div>
+{% endblock %}
