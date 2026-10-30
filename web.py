@@ -1,12 +1,10 @@
 # -*- coding: utf-8 -*-
 """RipperMods Web Site - Flask application (separate from bot)."""
-import os, logging, secrets, re, random, base64, smtplib
+import os, logging, secrets, re, random, base64
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from functools import wraps
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -25,8 +23,9 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=14)
 
 DATABASE_URL = os.environ.get('DATABASE_URL')
 CARD_NUMBER = os.getenv('CARD_NUMBER', '5022291544593963')
-CARD_HOLDER = os.getenv('CARD_HOLDER', 'علیرضا عباس پور')
+CARD_HOLDER = os.getenv('CARD_HOLDER', 'ریبعی نژاد')
 LINKS_FILE_PASSWORD = "t.me/rippermods"
+REDOWNLOAD_PRICE = Decimal(os.getenv('REDOWNLOAD_PRICE', '150000'))
 
 ADMIN_USERS = {
     'dev team': {'username': 'dev team', 'password': os.getenv('ADMIN1_PASSWORD', 'Amir'),  'level': 'admin', 'display': 'Dev Team'},
@@ -59,8 +58,7 @@ def init_db():
             email TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
             display_name TEXT,
-            email_verified BOOLEAN NOT NULL DEFAULT false,
-            verify_token TEXT,
+            email_verified BOOLEAN NOT NULL DEFAULT true,
             telegram_id BIGINT UNIQUE,
             is_admin BOOLEAN NOT NULL DEFAULT false,
             is_super_admin BOOLEAN NOT NULL DEFAULT false,
@@ -79,6 +77,24 @@ def init_db():
             reviewed_by TEXT,
             reviewed_at TIMESTAMPTZ,
             delivered_at TIMESTAMPTZ,
+            is_redownload BOOLEAN NOT NULL DEFAULT false,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )""",
+        """ALTER TABLE web_orders ADD COLUMN IF NOT EXISTS is_redownload BOOLEAN NOT NULL DEFAULT false""",
+        """ALTER TABLE products ADD COLUMN IF NOT EXISTS image_url TEXT""",
+        """CREATE TABLE IF NOT EXISTS web_tickets (
+            id BIGSERIAL PRIMARY KEY,
+            web_user_id BIGINT NOT NULL REFERENCES web_users(id) ON DELETE CASCADE,
+            subject TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'answered', 'closed')),
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )""",
+        """CREATE TABLE IF NOT EXISTS web_ticket_messages (
+            id BIGSERIAL PRIMARY KEY,
+            ticket_id BIGINT NOT NULL REFERENCES web_tickets(id) ON DELETE CASCADE,
+            sender_type TEXT NOT NULL CHECK(sender_type IN ('user', 'admin')),
+            message_text TEXT NOT NULL,
             created_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )"""
     ]
@@ -102,10 +118,6 @@ def unique_tracking(cur) -> str:
 EMAIL_RE = re.compile(r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
 def valid_email(email: str) -> bool:
     return bool(EMAIL_RE.match(email or ''))
-
-def send_verification_email(email: str, token: str, base_url: str) -> bool:
-    # این تابع فعلاً غیرفعال است تا زمانی که دامنه و سرویس ایمیل راه‌اندازی شود
-    return True
 
 def current_web_user():
     uid = session.get('web_user_id')
@@ -165,10 +177,8 @@ def register():
                     if cur.fetchone():
                         flash('این ایمیل قبلاً ثبت شده است.', 'error')
                         return render_template('register.html', email=email, display=display)
-                    # کاربر با ایمیل_وریفاید True ساخته میشه
                     cur.execute("INSERT INTO web_users(email,password_hash,display_name,email_verified) VALUES(%s,%s,%s,true) RETURNING id", (email, generate_password_hash(password), display or email.split('@')[0]))
                     new_user_id = cur.fetchone()['id']
-            # لاگین خودکار کاربر و انتقال به داشبورد
             session['web_user_id'] = new_user_id
             flash('ثبت‌نام با موفقیت انجام شد! خوش آمدید.', 'success')
             return redirect(url_for('dashboard'))
@@ -204,7 +214,7 @@ def logout():
 def shop():
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT id, name, description, price, active FROM products ORDER BY id")
+            cur.execute("SELECT id, name, description, price, active, image_url FROM products ORDER BY id")
             products = cur.fetchall()
     return render_template('shop.html', products=products)
 
@@ -216,7 +226,7 @@ def product_detail(pid):
             p = cur.fetchone()
     if not p:
         abort(404)
-    return render_template('product_detail.html', product=p, card_number=CARD_NUMBER, card_holder=CARD_HOLDER)
+    return render_template('product_detail.html', product=p)
 
 @app.route('/checkout/<int:pid>', methods=['GET', 'POST'])
 @login_required
@@ -228,7 +238,7 @@ def checkout(pid):
             p = cur.fetchone()
             if not p:
                 abort(404)
-            cur.execute("SELECT 1 FROM web_orders WHERE web_user_id=%s AND product_id=%s AND status IN ('approved','delivered')", (uid, pid))
+            cur.execute("SELECT 1 FROM web_orders WHERE web_user_id=%s AND product_id=%s AND status IN ('approved','delivered') AND is_redownload=false", (uid, pid))
             if cur.fetchone():
                 flash('شما قبلاً این محصول را خریداری کرده‌اید.', 'error')
                 return redirect(url_for('dashboard'))
@@ -251,6 +261,32 @@ def checkout(pid):
         return redirect(url_for('order_detail', oid=oid))
     return render_template('checkout.html', product=p, card_number=CARD_NUMBER, card_holder=CARD_HOLDER)
 
+@app.route('/redownload/<int:pid>', methods=['GET', 'POST'])
+@login_required
+def redownload(pid):
+    uid = session['web_user_id']
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM products WHERE id=%s", (pid,))
+            p = cur.fetchone()
+            if not p:
+                abort(404)
+    if request.method == 'POST':
+        receipt = request.files.get('receipt')
+        if not receipt or not receipt.filename:
+            flash('لطفاً تصویر رسید را آپلود کنید.', 'error')
+            return render_template('checkout.html', product=p, card_number=CARD_NUMBER, card_holder=CARD_HOLDER, is_redownload=True, redownload_price=REDOWNLOAD_PRICE)
+        data = receipt.read()
+        b64 = base64.b64encode(data).decode('ascii')
+        with db() as conn:
+            with conn.cursor() as cur:
+                tc = unique_tracking(cur)
+                cur.execute("INSERT INTO web_orders(web_user_id,product_id,product_name,amount,tracking_code,receipt_path,is_redownload) VALUES(%s,%s,%s,%s,%s,%s,true) RETURNING id", (uid, pid, f"دریافت مجدد {p['name']}", REDOWNLOAD_PRICE, tc, b64))
+                oid = cur.fetchone()['id']
+        flash(f'درخواست دریافت مجدد شما با کد پیگیری {tc} ثبت شد و در انتظار تایید ادمین است.', 'success')
+        return redirect(url_for('order_detail', oid=oid))
+    return render_template('checkout.html', product=p, card_number=CARD_NUMBER, card_holder=CARD_HOLDER, is_redownload=True, redownload_price=REDOWNLOAD_PRICE)
+
 @app.route('/dashboard')
 @login_required
 def dashboard():
@@ -261,7 +297,9 @@ def dashboard():
             u = cur.fetchone()
             cur.execute("SELECT * FROM web_orders WHERE web_user_id=%s ORDER BY created_at DESC", (uid,))
             orders = cur.fetchall()
-    return render_template('dashboard.html', user=u, orders=orders)
+            cur.execute("SELECT * FROM web_tickets WHERE web_user_id=%s ORDER BY updated_at DESC", (uid,))
+            tickets = cur.fetchall()
+    return render_template('dashboard.html', user=u, orders=orders, tickets=tickets)
 
 @app.route('/order/<int:oid>')
 @login_required
@@ -279,6 +317,48 @@ def order_detail(oid):
                 links = [r['link'] for r in cur.fetchall()]
     return render_template('order_detail.html', order=o, links=links, links_password=LINKS_FILE_PASSWORD)
 
+# --- Ticket System ---
+@app.route('/ticket/new', methods=['GET', 'POST'])
+@login_required
+def ticket_new():
+    if request.method == 'POST':
+        subject = request.form.get('subject', '').strip()
+        message = request.form.get('message', '').strip()
+        if not subject or not message:
+            flash('موضوع و متن پیام الزامی است.', 'error')
+            return render_template('ticket_new.html')
+        uid = session['web_user_id']
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("INSERT INTO web_tickets(web_user_id, subject) VALUES(%s,%s) RETURNING id", (uid, subject))
+                tid = cur.fetchone()['id']
+                cur.execute("INSERT INTO web_ticket_messages(ticket_id, sender_type, message_text) VALUES(%s, 'user', %s)", (tid, message))
+        flash('تیکت شما ثبت شد. به زودی پاسخ داده می‌شود.', 'success')
+        return redirect(url_for('ticket_view', tid=tid))
+    return render_template('ticket_new.html')
+
+@app.route('/ticket/<int:tid>', methods=['GET', 'POST'])
+@login_required
+def ticket_view(tid):
+    uid = session['web_user_id']
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM web_tickets WHERE id=%s AND web_user_id=%s", (tid, uid))
+            t = cur.fetchone()
+            if not t:
+                abort(404)
+            if request.method == 'POST':
+                msg = request.form.get('message', '').strip()
+                if msg:
+                    cur.execute("INSERT INTO web_ticket_messages(ticket_id, sender_type, message_text) VALUES(%s, 'user', %s)", (tid, msg))
+                    cur.execute("UPDATE web_tickets SET status='open', updated_at=now() WHERE id=%s", (tid,))
+                    flash('پاسخ شما ارسال شد.', 'success')
+                    return redirect(url_for('ticket_view', tid=tid))
+            cur.execute("SELECT * FROM web_ticket_messages WHERE ticket_id=%s ORDER BY created_at ASC", (tid,))
+            messages = cur.fetchall()
+    return render_template('ticket_view.html', ticket=t, messages=messages)
+
+# --- Admin Routes ---
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
     if request.method == 'POST':
@@ -310,7 +390,9 @@ def admin_panel():
             recent = cur.fetchall()
             cur.execute("SELECT count(*) n FROM web_users")
             users_n = cur.fetchone()['n']
-    return render_template('admin/panel.html', pending=pending, recent=recent, users_n=users_n)
+            cur.execute("SELECT t.*, u.email FROM web_tickets t JOIN web_users u ON t.web_user_id = u.id ORDER BY t.updated_at DESC")
+            tickets = cur.fetchall()
+    return render_template('admin/panel.html', pending=pending, recent=recent, users_n=users_n, tickets=tickets)
 
 @app.route('/admin/review/<int:oid>/<action>', methods=['POST'])
 @admin_required('super')
@@ -344,30 +426,57 @@ def admin_receipt(oid):
         abort(500)
     return data, 200, {'Content-Type': 'image/jpeg'}
 
+@app.route('/admin/ticket/<int:tid>', methods=['GET', 'POST'])
+@admin_required('admin')
+def admin_ticket(tid):
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT t.*, u.email FROM web_tickets t JOIN web_users u ON t.web_user_id = u.id WHERE t.id=%s", (tid,))
+            t = cur.fetchone()
+            if not t:
+                abort(404)
+            if request.method == 'POST':
+                msg = request.form.get('message', '').strip()
+                if msg:
+                    cur.execute("INSERT INTO web_ticket_messages(ticket_id, sender_type, message_text) VALUES(%s, 'admin', %s)", (tid, msg))
+                    cur.execute("UPDATE web_tickets SET status='answered', updated_at=now() WHERE id=%s", (tid,))
+                    flash('پاسخ شما ارسال شد.', 'success')
+                    return redirect(url_for('admin_ticket', tid=tid))
+            cur.execute("SELECT * FROM web_ticket_messages WHERE ticket_id=%s ORDER BY created_at ASC", (tid,))
+            messages = cur.fetchall()
+    return render_template('admin/ticket_view.html', ticket=t, messages=messages)
+
 @app.route('/admin/super')
 @admin_required('super')
 def admin_super():
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT id, name, description, price, active FROM products ORDER BY id")
+            cur.execute("SELECT id, name, description, price, active, image_url FROM products ORDER BY id")
             products = cur.fetchall()
-            cur.execute("SELECT * FROM web_users ORDER BY created_at DESC LIMIT 50")
-            users = cur.fetchall()
-    return render_template('admin/super.html', products=products, users=users)
+    return render_template('admin/super.html', products=products)
 
 @app.route('/admin/super/price/<int:pid>', methods=['POST'])
 @admin_required('super')
 def admin_update_price(pid):
     try:
         price = Decimal(request.form.get('price', '0'))
-        if price < 0:
-            raise InvalidOperation()
+        if price < 0: raise InvalidOperation()
         with db() as conn:
             with conn.cursor() as cur:
                 cur.execute("UPDATE products SET price=%s WHERE id=%s", (price, pid))
         flash('قیمت به‌روزرسانی شد.', 'success')
     except Exception:
         flash('قیمت معتبر نیست.', 'error')
+    return redirect(url_for('admin_super'))
+
+@app.route('/admin/super/image/<int:pid>', methods=['POST'])
+@admin_required('super')
+def admin_update_image(pid):
+    img_url = request.form.get('image_url', '').strip()
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE products SET image_url=%s WHERE id=%s", (img_url, pid))
+    flash('لینک عکس به‌روزرسانی شد.', 'success')
     return redirect(url_for('admin_super'))
 
 @app.route('/admin/super/links/<int:pid>', methods=['POST'])
@@ -383,29 +492,17 @@ def admin_update_links(pid):
     flash(f'{len(links)} لینک برای این محصول ثبت شد.', 'success')
     return redirect(url_for('admin_super'))
 
-@app.route('/admin/super/links/<int:pid>/view')
-@admin_required('super')
-def admin_view_links(pid):
-    with db() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT link FROM product_links WHERE product_id=%s ORDER BY id", (pid,))
-            links = [r['link'] for r in cur.fetchall()]
-    return jsonify(links=links)
-
 @app.get('/health')
 def health():
     try:
         with db() as conn:
-            with conn.cursor() as cur:
-                cur.execute('SELECT 1')
+            with conn.cursor() as cur: cur.execute('SELECT 1')
         return jsonify(status='ok', database='connected'), 200
     except Exception:
         return jsonify(status='degraded', database='unavailable'), 503
 
-try:
-    init_db()
-except Exception:
-    log.exception('init_db failed on import')
+try: init_db()
+except Exception: log.exception('init_db failed on import')
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', '10000'))
