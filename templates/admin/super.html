@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}پنل ادمین اصلی{% endblock %}
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; flex-wrap: wrap; gap: 15px;">
+    <h1 style="color: var(--accent);">👑 پنل ادمین اصلی</h1>
+    <a href="/admin" class="btn">← بازگشت به پنل</a>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 25px;">
+    {% for p in products %}
+    <div class="card">
+        <h3 style="color: var(--primary); margin-bottom: 20px;">⚙️ مدیریت: {{ p.name }}</h3>
+        
+        <form method="POST" action="/admin/super/price/{{ p.id }}" style="margin-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 20px;">
+            <label style="display: block; margin-bottom: 8px; color: var(--text-muted);">تغییر قیمت (تومان)</label>
+            <div style="display: flex; gap: 10px;">
+                <input type="number" name="price" class="form-control" value="{{ p.price|int }}" required>
+                <button type="submit" class="btn">💾 ذخیره</button>
+            </div>
+        </form>
+
+        <div>
+            <label style="display: block; margin-bottom: 8px; color: var(--text-muted);">تغییر لینک‌های دانلود (هر خط یک لینک)</label>
+            <form method="POST" action="/admin/super/links/{{ p.id }}">
+                <textarea name="links" class="form-control" rows="5" placeholder="https://...\nhttps://..."></textarea>
+                <button type="submit" class="btn" style="margin-top: 10px; width: 100%;">🔗 به‌روزرسانی لینک‌ها</button>
+            </form>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}
