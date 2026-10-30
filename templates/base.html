@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}RipperMods{% endblock %} | ریپر مادز</title>
+    <link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet" type="text/css" />
+    <style>
+        :root {
+            --bg-color: #0a0a0f;
+            --card-bg: #141420;
+            --primary: #00e5ff;
+            --primary-hover: #00b8cc;
+            --accent: #ff0055;
+            --text-main: #e8e8f0;
+            --text-muted: #8892b0;
+            --success: #00ff88;
+            --error: #ff3366;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Vazirmatn', sans-serif; }
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background-image: radial-gradient(circle at 15% 50%, rgba(0, 229, 255, 0.05), transparent 25%), radial-gradient(circle at 85% 30%, rgba(255, 0, 85, 0.05), transparent 25%);
+        }
+        a { color: var(--primary); text-decoration: none; transition: 0.3s; }
+        a:hover { color: var(--primary-hover); }
+        header {
+            background: rgba(10, 10, 15, 0.8); backdrop-filter: blur(10px); border-bottom: 1px solid rgba(0, 229, 255, 0.2);
+            padding: 15px 5%; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100;
+        }
+        .logo { font-size: 1.5rem; font-weight: 800; color: #fff; text-shadow: 0 0 10px var(--primary); }
+        .logo span { color: var(--primary); }
+        nav { display: flex; gap: 20px; align-items: center; }
+        nav a { color: var(--text-main); font-weight: 500; }
+        nav a:hover { color: var(--primary); text-shadow: 0 0 8px var(--primary); }
+        .btn {
+            background: transparent; border: 1px solid var(--primary); color: var(--primary);
+            padding: 8px 20px; border-radius: 6px; cursor: pointer; font-family: inherit; font-weight: 600; transition: 0.3s; text-align: center; display: inline-block;
+        }
+        .btn:hover { background: var(--primary); color: #000; box-shadow: 0 0 15px var(--primary); }
+        .btn-accent { border-color: var(--accent); color: var(--accent); }
+        .btn-accent:hover { background: var(--accent); color: #fff; box-shadow: 0 0 15px var(--accent); }
+        main { flex: 1; padding: 40px 5%; max-width: 1200px; margin: 0 auto; width: 100%; }
+        .alert { padding: 12px 20px; border-radius: 6px; margin-bottom: 20px; font-weight: 500; }
+        .alert-success { background: rgba(0, 255, 136, 0.1); border: 1px solid var(--success); color: var(--success); }
+        .alert-error { background: rgba(255, 51, 102, 0.1); border: 1px solid var(--error); color: var(--error); }
+        .card { background: var(--card-bg); border: 1px solid rgba(0, 229, 255, 0.1); border-radius: 12px; padding: 30px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; margin-bottom: 8px; color: var(--text-muted); }
+        .form-control { width: 100%; padding: 12px; background: #0a0a0f; border: 1px solid rgba(0, 229, 255, 0.3); border-radius: 6px; color: #fff; font-family: inherit; }
+        .form-control:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 10px rgba(0,229,255,0.2); }
+        footer { text-align: center; padding: 20px; border-top: 1px solid rgba(255,255,255,0.05); color: var(--text-muted); font-size: 0.9rem; }
+    </style>
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <header>
+        <a href="/" class="logo">Ripper<span>Mods</span></a>
+        <nav>
+            <a href="/shop">فروشگاه</a>
+            {% if current_user %}
+                <a href="/dashboard">پنل کاربری</a>
+                <a href="/logout" class="btn">خروج</a>
+            {% else %}
+                <a href="/login">ورود</a>
+                <a href="/register" class="btn">ثبت‌نام</a>
+            {% endif %}
+        </nav>
+    </header>
+    <main>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        {% block content %}{% endblock %}
+    </main>
+    <footer><p>© 2026 RipperMods - تمامی حقوق محفوظ است.</p></footer>
+    {% block scripts %}{% endblock %}
+</body>
+                  </html>
