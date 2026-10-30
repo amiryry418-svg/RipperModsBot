@@ -3,11 +3,20 @@
 {% block content %}
 <div style="max-width: 600px; margin: 0 auto;">
     <div class="card">
-        <h2 style="color: var(--primary); margin-bottom: 20px;">💳 تکمیل خرید</h2>
+        <h2 style="color: var(--primary); margin-bottom: 20px;">
+            {% if is_redownload %}🔄 درخواست دریافت مجدد{% else %}💳 تکمیل خرید{% endif %}
+        </h2>
         
         <div style="background: rgba(0, 229, 255, 0.05); border: 1px solid rgba(0, 229, 255, 0.2); border-radius: 8px; padding: 20px; margin-bottom: 25px;">
             <p style="margin-bottom: 5px;"><strong>محصول:</strong> {{ product.name }}</p>
-            <p style="font-size: 1.2rem; color: var(--success); font-weight: 700;">مبلغ قابل پرداخت: {{ "{:,}".format(product.price|int) }} تومان</p>
+            <p style="font-size: 1.2rem; color: var(--success); font-weight: 700;">
+                مبلغ قابل پرداخت: 
+                {% if is_redownload %}
+                    {{ "{:,}".format(redownload_price|int) }} تومان
+                {% else %}
+                    {{ "{:,}".format(product.price|int) }} تومان
+                {% endif %}
+            </p>
         </div>
 
         <div style="background: rgba(255, 0, 85, 0.05); border: 1px dashed var(--accent); border-radius: 8px; padding: 20px; margin-bottom: 25px; text-align: center;">
@@ -21,11 +30,15 @@
                 <label>تصویر رسید پرداخت (حداکثر ۵ مگابایت)</label>
                 <input type="file" name="receipt" class="form-control" accept="image/*" required style="padding: 8px;">
             </div>
-            <button type="submit" class="btn" style="width: 100%; padding: 12px; font-size: 1.05rem;">✅ ثبت سفارش</button>
+            <button type="submit" class="btn" style="width: 100%; padding: 12px; font-size: 1.05rem;">✅ ثبت درخواست</button>
         </form>
         
         <p style="text-align: center; margin-top: 20px; font-size: 0.85rem; color: var(--text-muted);">
-            پس از بررسی رسید توسط ادمین، لینک‌های دانلود برای شما ارسال می‌شود.
+            {% if is_redownload %}
+                درخواست شما پس از تایید ادمین اصلی، پردازش خواهد شد.
+            {% else %}
+                پس از بررسی رسید توسط ادمین، لینک‌های دانلود برای شما ارسال می‌شود.
+            {% endif %}
         </p>
     </div>
 </div>
