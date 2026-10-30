@@ -104,30 +104,8 @@ def valid_email(email: str) -> bool:
     return bool(EMAIL_RE.match(email or ''))
 
 def send_verification_email(email: str, token: str, base_url: str) -> bool:
-    smtp_email = os.getenv('SMTP_EMAIL', '').strip()
-    smtp_pass = os.getenv('SMTP_PASSWORD', '').strip()
-    if not smtp_email or not smtp_pass:
-        log.warning('SMTP not configured. Verification link: %s/verify/%s', base_url, token)
-        return True
-    try:
-        link = f"{base_url}/verify/{token}"
-        html = f"""<div dir="rtl" style="font-family:Tahoma,sans-serif;background:#0f0f1a;color:#e8e8f0;padding:30px;border-radius:12px">
-        <h2 style="color:#00e5ff">RipperMods</h2>
-        <p>برای فعال‌سازی حساب خود روی لینک زیر کلیک کنید:</p>
-        <p><a href="{link}" style="color:#00e5ff;background:#1a1a2e;padding:12px 24px;border-radius:8px;text-decoration:none">تایید ایمیل</a></p>
-        </div>"""
-        msg = MIMEMultipart('alternative')
-        msg['Subject'] = 'RipperMods - تایید ایمیل'
-        msg['From'] = smtp_email
-        msg['To'] = email
-        msg.attach(MIMEText(html, 'html', 'utf-8'))
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=15) as s:
-            s.login(smtp_email, smtp_pass)
-            s.send_message(msg)
-        return True
-    except Exception as e:
-        log.exception('Failed to send verification email: %s', e)
-        return False
+    # این تابع فعلاً غیرفعال است تا زمانی که دامنه و سرویس ایمیل راه‌اندازی شود
+    return True
 
 def current_web_user():
     uid = session.get('web_user_id')
@@ -187,28 +165,17 @@ def register():
                     if cur.fetchone():
                         flash('این ایمیل قبلاً ثبت شده است.', 'error')
                         return render_template('register.html', email=email, display=display)
-                    token = secrets.token_urlsafe(32)
-                    cur.execute("INSERT INTO web_users(email,password_hash,display_name,verify_token) VALUES(%s,%s,%s,%s) RETURNING id", (email, generate_password_hash(password), display or email.split('@')[0], token))
-            base = request.host_url.rstrip('/')
-            send_verification_email(email, token, base)
-            return render_template('verify_sent.html', email=email)
+                    # کاربر با ایمیل_وریفاید True ساخته میشه
+                    cur.execute("INSERT INTO web_users(email,password_hash,display_name,email_verified) VALUES(%s,%s,%s,true) RETURNING id", (email, generate_password_hash(password), display or email.split('@')[0]))
+                    new_user_id = cur.fetchone()['id']
+            # لاگین خودکار کاربر و انتقال به داشبورد
+            session['web_user_id'] = new_user_id
+            flash('ثبت‌نام با موفقیت انجام شد! خوش آمدید.', 'success')
+            return redirect(url_for('dashboard'))
         except Exception:
             log.exception('register failed')
             flash('خطا در ثبت‌نام. لطفاً دوباره تلاش کنید.', 'error')
     return render_template('register.html')
-
-@app.route('/verify/<token>')
-def verify(token):
-    with db() as conn:
-        with conn.cursor() as cur:
-            cur.execute("UPDATE web_users SET email_verified=true, verify_token=NULL WHERE verify_token=%s RETURNING id", (token,))
-            row = cur.fetchone()
-    if row:
-        session['web_user_id'] = row['id']
-        flash('ایمیل شما با موفقیت تایید شد. خوش آمدید!', 'success')
-        return redirect(url_for('dashboard'))
-    flash('لینک تایید نامعتبر یا منقضی شده است.', 'error')
-    return redirect(url_for('login'))
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -220,9 +187,6 @@ def login():
                 cur.execute("SELECT * FROM web_users WHERE email=%s", (email,))
                 u = cur.fetchone()
                 if u and check_password_hash(u['password_hash'], password):
-                    if not u['email_verified']:
-                        flash('ابتدا ایمیل خود را تایید کنید.', 'error')
-                        return render_template('login.html', email=email)
                     cur.execute("UPDATE web_users SET last_login=now() WHERE id=%s", (u['id'],))
                     session['web_user_id'] = u['id']
                     return redirect(url_for('dashboard'))
