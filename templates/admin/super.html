@@ -19,10 +19,18 @@
             </div>
         </form>
 
+        <form method="POST" action="/admin/super/image/{{ p.id }}" style="margin-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 20px;">
+            <label style="display: block; margin-bottom: 8px; color: var(--text-muted);">لینک عکس محصول</label>
+            <div style="display: flex; gap: 10px;">
+                <input type="url" name="image_url" class="form-control" value="{{ p.image_url or '' }}" placeholder="https://..." dir="ltr" style="text-align: left;">
+                <button type="submit" class="btn">🖼 ذخیره</button>
+            </div>
+        </form>
+
         <div>
             <label style="display: block; margin-bottom: 8px; color: var(--text-muted);">تغییر لینک‌های دانلود (هر خط یک لینک)</label>
             <form method="POST" action="/admin/super/links/{{ p.id }}">
-                <textarea name="links" class="form-control" rows="5" placeholder="https://...\nhttps://..."></textarea>
+                <textarea name="links" class="form-control" rows="4" placeholder="https://...\nhttps://..." dir="ltr" style="text-align: left;"></textarea>
                 <button type="submit" class="btn" style="margin-top: 10px; width: 100%;">🔗 به‌روزرسانی لینک‌ها</button>
             </form>
         </div>
