@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}تیکت #{{ ticket.id }}{% endblock %}
+{% block content %}
+<div style="max-width: 700px; margin: 0 auto;">
+    <a href="/dashboard" style="display: inline-block; margin-bottom: 20px;">← بازگشت به داشبورد</a>
+    
+    <div class="card" style="margin-bottom: 20px;">
+        <h2 style="color: var(--primary); margin-bottom: 10px;">🎫 {{ ticket.subject }}</h2>
+        <p style="color: var(--text-muted); font-size: 0.9rem;">
+            وضعیت: 
+            {% if ticket.status == 'open' %}
+                <span style="color: #ffaa00;">⏳ در انتظار پاسخ</span>
+            {% elif ticket.status == 'answered' %}
+                <span style="color: var(--success);">✅ پاسخ داده شده</span>
+            {% else %}
+                <span>بسته شده</span>
+            {% endif %}
+        </p>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 15px; margin-bottom: 20px;">
+        {% for m in messages %}
+            {% if m.sender_type == 'user' %}
+                <div style="align-self: flex-end; background: rgba(0, 229, 255, 0.1); border: 1px solid var(--primary); padding: 12px 18px; border-radius: 12px 12px 0 12px; max-width: 80%;">
+                    <p style="color: var(--primary); font-size: 0.8rem; margin-bottom: 5px;">👤 شما</p>
+                    <p style="line-height: 1.6; white-space: pre-wrap;">{{ m.message_text }}</p>
+                </div>
+            {% else %}
+                <div style="align-self: flex-start; background: var(--card-bg); border: 1px solid rgba(255,255,255,0.1); padding: 12px 18px; border-radius: 12px 12px 12px 0; max-width: 80%;">
+                    <p style="color: var(--accent); font-size: 0.8rem; margin-bottom: 5px;">🛡 پشتیبانی RipperMods</p>
+                    <p style="line-height: 1.6; white-space: pre-wrap;">{{ m.message_text }}</p>
+                </div>
+            {% endif %}
+        {% endfor %}
+    </div>
+
+    {% if ticket.status != 'closed' %}
+    <div class="card">
+        <form method="POST">
+            <div class="form-group">
+                <textarea name="message" class="form-control" rows="3" required placeholder="پاسخ خود را بنویسید..."></textarea>
+            </div>
+            <button type="submit" class="btn">ارسال پاسخ</button>
+        </form>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
