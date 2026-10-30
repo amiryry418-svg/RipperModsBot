@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}{{ product.name }}{% endblock %}
+{% block content %}
+<div style="max-width: 700px; margin: 0 auto;">
+    <div class="card">
+        <h1 style="color: var(--primary); margin-bottom: 15px;">{{ product.name }}</h1>
+        <p style="color: var(--text-muted); font-size: 1.1rem; line-height: 1.8; margin-bottom: 30px;">{{ product.description }}</p>
+        
+        <div style="background: rgba(0, 229, 255, 0.05); border: 1px solid rgba(0, 229, 255, 0.2); border-radius: 8px; padding: 20px; margin-bottom: 30px;">
+            <p style="font-size: 1.5rem; font-weight: 700; margin-bottom: 10px; color: var(--success);">
+                💰 قیمت: {{ "{:,}".format(product.price|int) }} تومان
+            </p>
+            <p style="font-size: 0.95rem; color: var(--text-muted);">پرداخت به صورت کارت به کارت</p>
+        </div>
+
+        {% if current_user %}
+            <a href="/checkout/{{ product.id }}" class="btn" style="width: 100%; padding: 14px; font-size: 1.1rem;">💳 خرید محصول</a>
+        {% else %}
+            <div style="text-align: center;">
+                <p style="color: var(--text-muted); margin-bottom: 15px;">برای خرید ابتدا وارد حساب خود شوید.</p>
+                <a href="/login" class="btn" style="padding: 12px 40px;">🔐 ورود به حساب</a>
+            </div>
+        {% endif %}
+    </div>
+
+    <div class="card" style="margin-top: 20px;">
+        <h3 style="color: var(--primary); margin-bottom: 15px;">ℹ️ اطلاعات پرداخت</h3>
+        <p style="color: var(--text-muted); line-height: 1.8;">
+            شماره کارت: <strong dir="ltr" style="color: var(--text-main);">{{ card_number }}</strong><br>
+            به نام: <strong style="color: var(--text-main);">{{ card_holder }}</strong>
+        </p>
+    </div>
+</div>
+{% endblock %}
