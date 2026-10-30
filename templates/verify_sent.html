@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}تایید ایمیل{% endblock %}
+{% block content %}
+<div style="max-width: 500px; margin: 60px auto; text-align: center;">
+    <div class="card">
+        <div style="font-size: 4rem; margin-bottom: 20px;">📧</div>
+        <h2 style="color: var(--primary); margin-bottom: 20px;">ایمیل تایید ارسال شد</h2>
+        <p style="color: var(--text-main); line-height: 1.8; margin-bottom: 20px;">
+            ما یک لینک تایید به ایمیل <strong style="color: var(--primary);">{{ email }}</strong> ارسال کردیم.
+        </p>
+        <p style="color: var(--text-muted); margin-bottom: 30px;">
+            لطفاً صندوق ورودی (و پوشه Spam) خود را بررسی کنید و روی لینک تایید کلیک کنید.
+        </p>
+        <a href="/login" class="btn">بازگشت به صفحه ورود</a>
+    </div>
+</div>
+{% endblock %}
