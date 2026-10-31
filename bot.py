@@ -90,9 +90,6 @@ def _get_decimal_env(name: str, default: str = '0') -> Decimal:
 
 REDOWNLOAD_PRICE = _get_decimal_env('REDOWNLOAD_PRICE', '150000')
 
-REQUIRED_CHANNELS = ['@Rippermods', '@miomusici']
-CHANNEL_NAMES = {'@Rippermods': 'RipperMods', '@miomusici': 'Miomusici'}
-
 BANNED_IDS = {8649548594}
 
 def is_banned(uid: int) -> bool:
@@ -242,6 +239,7 @@ def init_db():
             """CREATE TABLE IF NOT EXISTS custom_trainer_requests (id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL REFERENCES users(telegram_id), details TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'new', admin_reply TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now())""",
             """CREATE TABLE IF NOT EXISTS support_messages (id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL REFERENCES users(telegram_id), direction TEXT NOT NULL CHECK(direction IN ('user_to_admin','admin_to_user')), message_text TEXT, file_id TEXT, file_type TEXT, admin_id BIGINT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())""",
             """CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_by BIGINT, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())""",
+            """CREATE TABLE IF NOT EXISTS force_join_chats (id BIGSERIAL PRIMARY KEY, chat_id TEXT NOT NULL UNIQUE, title TEXT NOT NULL, invite_url TEXT NOT NULL, enabled BOOLEAN NOT NULL DEFAULT true, added_by BIGINT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())""",
             """CREATE TABLE IF NOT EXISTS admin_audit (id BIGSERIAL PRIMARY KEY, admin_id BIGINT NOT NULL, action TEXT NOT NULL, target TEXT, details TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())""",
             """CREATE TABLE IF NOT EXISTS product_links (id BIGSERIAL PRIMARY KEY, product_id BIGINT NOT NULL REFERENCES products(id) ON DELETE CASCADE, link TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())""",
             """CREATE TABLE IF NOT EXISTS ps4_trainers (
@@ -273,6 +271,15 @@ def init_db():
             with conn.cursor() as cur:
                 for sql in schema:
                     cur.execute(sql)
+
+                # تنظیمات اولیه عضویت اجباری؛ پس از آن مدیریت کامل از پنل انجام می‌شود.
+                cur.execute("INSERT INTO settings(key,value) VALUES('force_join_enabled','true') ON CONFLICT(key) DO NOTHING")
+                cur.execute("""INSERT INTO force_join_chats(chat_id,title,invite_url,enabled)
+                              VALUES (%s,%s,%s,true) ON CONFLICT(chat_id) DO NOTHING""",
+                            ('@Rippermods', 'RipperMods', 'https://t.me/Rippermods'))
+                cur.execute("""INSERT INTO force_join_chats(chat_id,title,invite_url,enabled)
+                              VALUES (%s,%s,%s,true) ON CONFLICT(chat_id) DO NOTHING""",
+                            ('@miomusici', 'Miomusici', 'https://t.me/miomusici'))
 
                 # پاکسازی و ایمن‌سازی محصولات
                 cur.execute("DELETE FROM product_links WHERE product_id NOT IN (SELECT MIN(id) FROM products GROUP BY name)")
@@ -363,47 +370,83 @@ async def log_reply_to(context: ContextTypes.DEFAULT_TYPE, reply_to_message_id: 
         return False
 
 
+def force_join_enabled() -> bool:
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT value FROM settings WHERE key='force_join_enabled'")
+            row = cur.fetchone()
+    return bool(row and str(row['value']).lower() in ('1', 'true', 'yes', 'on'))
+
+
+def get_force_join_chats(enabled_only: bool = True):
+    with db() as conn:
+        with conn.cursor() as cur:
+            if enabled_only:
+                cur.execute('SELECT id,chat_id,title,invite_url,enabled FROM force_join_chats WHERE enabled=true ORDER BY id')
+            else:
+                cur.execute('SELECT id,chat_id,title,invite_url,enabled FROM force_join_chats ORDER BY id')
+            return cur.fetchall()
+
+
 async def check_membership(context: ContextTypes.DEFAULT_TYPE, user_id: int):
-    """Check whether a user belongs to every required Telegram channel."""
+    """Check membership in every currently enabled force-join channel/group."""
+    if not force_join_enabled():
+        return True, []
+    required = get_force_join_chats(enabled_only=True)
     missing_channels = []
-    for channel in REQUIRED_CHANNELS:
+    for chat in required:
         try:
-            member = await context.bot.get_chat_member(chat_id=channel, user_id=user_id)
+            member = await context.bot.get_chat_member(chat_id=chat['chat_id'], user_id=user_id)
             if member.status not in ('member', 'administrator', 'creator'):
-                missing_channels.append(channel)
+                missing_channels.append(chat)
         except TelegramError:
-            # If Telegram cannot verify membership, do not grant access.
-            log.exception('Could not verify membership for user %s in %s', user_id, channel)
-            missing_channels.append(channel)
+            # Bot must be an administrator/member with permission to inspect membership.
+            log.exception('Could not verify membership for user %s in %s', user_id, chat['chat_id'])
+            missing_channels.append(chat)
     return (len(missing_channels) == 0, missing_channels)
 
 
 def not_member_kb(missing_channels):
-    channel_urls = {
-        '@Rippermods': 'https://t.me/Rippermods',
-        '@miomusici': 'https://t.me/miomusici',
-    }
     rows = []
     for channel in missing_channels:
-        name = CHANNEL_NAMES.get(channel, channel)
-        url = channel_urls.get(channel)
+        url = (channel.get('invite_url') or '').strip()
         if url:
-            rows.append([InlineKeyboardButton(f'عضویت در کانال {name}', url=url)])
+            rows.append([InlineKeyboardButton(f"عضویت در {channel.get('title') or channel['chat_id']}", url=url)])
+    rows.append([InlineKeyboardButton('🔄 بررسی عضویت', callback_data='forcejoin:check')])
     return InlineKeyboardMarkup(rows)
 
 
 async def require_channel_membership(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> bool:
-    """Send the join prompt when a non-admin is missing a required channel."""
+    """Send the join prompt when a non-admin is missing a required channel/group."""
     if is_admin(user_id):
         return True
     is_member, missing = await check_membership(context, user_id)
     if not is_member:
         await update.effective_message.reply_text(
-            '⚠️ برای استفاده از ربات، ابتدا در کانال‌های زیر عضو شوید:',
+            '⚠️ برای استفاده از ربات، ابتدا در کانال‌ها و گروه‌های زیر عضو شوید:',
             reply_markup=not_member_kb(missing)
         )
         return False
     return True
+
+
+async def send_force_join_panel(message):
+    enabled = force_join_enabled()
+    chats = get_force_join_chats(enabled_only=False)
+    rows = []
+    for item in chats:
+        state = '🟢 فعال' if item['enabled'] else '⚪ غیرفعال'
+        rows.append([InlineKeyboardButton(f"{state} | {item['title']}", callback_data=f"fj:toggle:{item['id']}")])
+        rows.append([InlineKeyboardButton('🗑 حذف ' + item['title'], callback_data=f"fj:delete:{item['id']}")])
+    rows.append([InlineKeyboardButton('➕ افزودن کانال یا گروه', callback_data='fj:add')])
+    rows.append([InlineKeyboardButton('🔛 روشن/خاموش عضویت اجباری: ' + ('روشن' if enabled else 'خاموش'), callback_data='fj:toggle_global')])
+    rows.append([InlineKeyboardButton('🔙 بازگشت به پنل مدیریت', callback_data='fj:back')])
+    details = '\n'.join([f"{'🟢' if x['enabled'] else '⚪'} {x['title']} — {x['chat_id']}" for x in chats]) or 'هنوز کانال یا گروهی ثبت نشده است.'
+    text = ('📢 مدیریت عضویت اجباری\n\n'
+            f"وضعیت کلی: {'روشن' if enabled else 'خاموش'}\n\n"
+            f"موارد ثبت‌شده:\n{details}\n\n"
+            'برای بررسی عضویت، ربات باید در هر کانال/گروه دسترسی لازم داشته باشد (ترجیحاً ادمین باشد).')
+    await message.reply_text(text, reply_markup=InlineKeyboardMarkup(rows))
 
 
 def is_admin(uid: int) -> bool:
@@ -479,11 +522,15 @@ def admin_kb():
         [InlineKeyboardButton('💰 تغییر موجودی', callback_data='adm:wallet'), InlineKeyboardButton('⚙️ تنظیمات پرداخت', callback_data='adm:settings')],
         [InlineKeyboardButton('💵 تغییر قیمت پک‌ها', callback_data='adm:edit_price'), InlineKeyboardButton('🔗 تغییر لینک محصولات', callback_data='adm:edit_links')],
         [InlineKeyboardButton('📣 پیام همگانی', callback_data='adm:broadcast'), InlineKeyboardButton('📜 سوابق مدیران', callback_data='adm:audit')],
-        [InlineKeyboardButton('🎁 قرعه‌کشی', callback_data='draw_lottery')]
+        [InlineKeyboardButton('🎁 قرعه‌کشی', callback_data='draw_lottery')],
+        [InlineKeyboardButton('📢 مدیریت عضویت اجباری', callback_data='adm:forcejoin')]
     ])
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # ربات در گروه‌ها/سوپرگروه‌ها هیچ پیام یا منویی ارسال نمی‌کند؛ فقط PV.
+    if not update.effective_chat or update.effective_chat.type != 'private':
+        return
     u = update.effective_user
     if not u or is_banned(u.id):
         return
@@ -520,7 +567,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.effective_chat or update.effective_chat.type != 'private':
+        return
     u = update.effective_user
+    if not u or is_banned(u.id):
+        return
+    if not await require_channel_membership(update, context, u.id):
+        return
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute('SELECT reg_name, phone FROM users WHERE telegram_id=%s', (u.id,))
@@ -935,6 +988,11 @@ async def deliver(context, uid, order_id, product_name):
 
 async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
+    # هیچ callbackای در گروه‌ها پردازش یا به پیام گروهی تبدیل نمی‌شود.
+    if not q or not q.message or q.message.chat.type != 'private':
+        if q:
+            await q.answer()
+        return
     uid = q.from_user.id
     if is_banned(uid):
         return
@@ -946,6 +1004,74 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await q.answer()
     data = q.data or ''
     try:
+        if data == 'forcejoin:check':
+            if not is_admin(uid):
+                is_member, missing = await check_membership(context, uid)
+                if is_member:
+                    await q.message.reply_text('✅ عضویت شما تأیید شد. حالا می‌توانید از ربات استفاده کنید.')
+                else:
+                    await q.message.reply_text('⚠️ هنوز در همه کانال‌ها و گروه‌های لازم عضو نشده‌اید:', reply_markup=not_member_kb(missing))
+            else:
+                await q.message.reply_text('✅ ادمین‌ها از عضویت اجباری معاف هستند.')
+            return
+
+        if data == 'fj:back':
+            if not is_admin(uid):
+                await q.message.reply_text('دسترسی ندارید.')
+                return
+            await q.message.reply_text('پنل مدیریت:', reply_markup=admin_kb())
+            return
+
+        if data == 'fj:add':
+            if not is_admin(uid):
+                await q.message.reply_text('دسترسی ندارید.')
+                return
+            context.user_data.clear()
+            context.user_data['flow'] = 'adm_fj_chat_id'
+            await q.message.reply_text(
+                'آیدی کانال/گروه را بفرستید.\nمثال کانال عمومی: @MyChannel\nمثال گروه خصوصی: -1001234567890\n\n'
+                'ربات باید در آن کانال/گروه ادمین باشد تا بتواند عضویت را بررسی کند.',
+                reply_markup=back_kb())
+            return
+
+        if data == 'fj:toggle_global':
+            if not is_admin(uid):
+                await q.message.reply_text('دسترسی ندارید.')
+                return
+            new_value = not force_join_enabled()
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("INSERT INTO settings(key,value,updated_by) VALUES('force_join_enabled',%s,%s) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_by=EXCLUDED.updated_by,updated_at=now()", (str(new_value).lower(), uid))
+            audit(uid, 'force_join_global_toggle', 'all', str(new_value))
+            await send_force_join_panel(q.message)
+            return
+
+        if data.startswith('fj:toggle:'):
+            if not is_admin(uid):
+                await q.message.reply_text('دسترسی ندارید.')
+                return
+            item_id = int(data.rsplit(':', 1)[1])
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute('UPDATE force_join_chats SET enabled=NOT enabled WHERE id=%s', (item_id,))
+            audit(uid, 'force_join_item_toggle', str(item_id), '')
+            await send_force_join_panel(q.message)
+            return
+
+        if data.startswith('fj:delete:'):
+            if not is_admin(uid):
+                await q.message.reply_text('دسترسی ندارید.')
+                return
+            item_id = int(data.rsplit(':', 1)[1])
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute('DELETE FROM force_join_chats WHERE id=%s RETURNING title,chat_id', (item_id,))
+                    deleted = cur.fetchone()
+            if deleted:
+                audit(uid, 'force_join_delete', deleted['chat_id'], deleted['title'])
+            await send_force_join_panel(q.message)
+            return
+
         if data == 'reseller:add_sale':
             if not _is_reseller(uid):
                 await q.message.reply_text('دسترسی نمایندگی فعال نیست.')
@@ -1351,6 +1477,10 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             if action in ('coupon', 'wallet', 'edit_links', 'edit_price') and not is_super(uid):
                 await q.message.reply_text('⛔ این بخش فقط برای مدیر اصلی است.')
+                return
+
+            if action == 'forcejoin':
+                await send_force_join_panel(q.message)
                 return
 
             if action == 'track':
@@ -1783,6 +1913,9 @@ async def _notify_super_for_redownload(context, uid, order_id, product_name, amo
 
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # تمام منوها و فلوها فقط در گفت‌وگوی خصوصی فعال‌اند.
+    if not update.effective_chat or update.effective_chat.type != 'private':
+        return
     msg = update.effective_message
     u = update.effective_user
     if not u or is_banned(u.id):
@@ -1798,8 +1931,51 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.reply_text('عملیات لغو شد.', reply_markup=main_keyboard())
         return
 
-    # --- Registration Flow ---
+    # --- Admin force-join management flows ---
     flow = context.user_data.get('flow')
+    if flow in ('adm_fj_chat_id', 'adm_fj_title', 'adm_fj_url') and not is_admin(u.id):
+        context.user_data.clear()
+        await msg.reply_text('دسترسی ندارید.')
+        return
+    if flow == 'adm_fj_chat_id':
+        chat_id = text.strip()
+        if not chat_id or len(chat_id) > 128:
+            await msg.reply_text('آیدی معتبر نیست. دوباره بفرستید:')
+            return
+        context.user_data['adm_fj_chat_id'] = chat_id
+        context.user_data['flow'] = 'adm_fj_title'
+        await msg.reply_text('نام نمایشی کانال/گروه را وارد کنید (مثلاً RipperMods):', reply_markup=back_kb())
+        return
+    if flow == 'adm_fj_title':
+        title = text.strip()
+        if not title or len(title) > 100:
+            await msg.reply_text('نام نمایشی معتبر نیست. دوباره وارد کنید:')
+            return
+        context.user_data['adm_fj_title'] = title
+        context.user_data['flow'] = 'adm_fj_url'
+        await msg.reply_text('لینک عضویت را بفرستید (مثل https://t.me/Channel یا لینک دعوت گروه خصوصی):', reply_markup=back_kb())
+        return
+    if flow == 'adm_fj_url':
+        invite_url = text.strip()
+        if invite_url.startswith('t.me/'):
+            invite_url = 'https://' + invite_url
+        chat_id = context.user_data.get('adm_fj_chat_id', '').strip()
+        title = context.user_data.get('adm_fj_title', '').strip()
+        if invite_url == '-' and chat_id.startswith('@'):
+            invite_url = 'https://t.me/' + chat_id[1:]
+        if not invite_url.startswith(('https://t.me/', 'http://t.me/')):
+            await msg.reply_text('لینک باید از نوع t.me باشد. لینک معتبر را بفرستید یا برای آیدی عمومی «-» بفرستید:')
+            return
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("INSERT INTO force_join_chats(chat_id,title,invite_url,enabled,added_by) VALUES(%s,%s,%s,true,%s) ON CONFLICT(chat_id) DO UPDATE SET title=EXCLUDED.title,invite_url=EXCLUDED.invite_url,enabled=true,added_by=EXCLUDED.added_by", (chat_id,title,invite_url,u.id))
+        audit(u.id, 'force_join_add_or_update', chat_id, title)
+        context.user_data.clear()
+        await msg.reply_text('✅ کانال/گروه به فهرست عضویت اجباری اضافه شد.')
+        await send_force_join_panel(msg)
+        return
+
+    # --- Registration Flow ---
     if flow == 'reg_name':
         context.user_data['reg_name'] = text
         context.user_data['flow'] = 'reg_phone'
@@ -2178,376 +2354,3 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if flow == 'coupon_apply':
             code = text.upper()
             with db() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("SELECT * FROM coupons WHERE code=%s AND active=true AND (expires_at IS NULL OR expires_at>now()) AND (max_uses IS NULL OR uses<max_uses)", (code,))
-                    cp = cur.fetchone()
-            if not cp:
-                await msg.reply_text('کد نامعتبر، منقضی یا غیرفعال است.'); return
-            with db() as conn:
-                with conn.cursor() as cur:
-                    cur.execute('SELECT 1 FROM coupon_uses WHERE coupon_id=%s AND user_id=%s', (cp['id'], u.id))
-                    used = cur.fetchone()
-            if used:
-                await msg.reply_text('این کد را قبلاً استفاده کرده‌اید.'); return
-            context.user_data.update(coupon_code=code, flow=None)
-            target_pid = context.user_data.pop('coupon_target_pid', None)
-            if target_pid:
-                with db() as conn:
-                    with conn.cursor() as cur:
-                        cur.execute('SELECT name FROM products WHERE id=%s', (target_pid,))
-                        pr = cur.fetchone()
-                await msg.reply_text('✅ کد تخفیف با موفقیت اعمال شد.', reply_markup=main_keyboard())
-                await show_product_details(update, context, pr['name'])
-            else:
-                await msg.reply_text('✅ کد ذخیره شد. حالا روی محصولی که می‌خواید تخفیف بگیرید کلیک کنید.', reply_markup=main_keyboard())
-            return
-        if flow == 'port_game':
-            context.user_data.update(port_game=text, flow='port_platform')
-            await msg.reply_text('پلتفرم موردنظر را وارد کنید (مثلاً PC، Android، کنسول):'); return
-        if flow == 'port_platform':
-            context.user_data.update(port_platform=text, flow='port_details')
-            await msg.reply_text('توضیحات اضافی را وارد کنید یا «ندارد» بنویسید:'); return
-        if flow == 'port_details':
-            game = context.user_data['port_game']
-            platform = context.user_data['port_platform']
-            details = '' if text == 'ندارد' else text
-            with db() as conn:
-                with conn.cursor() as cur:
-                    cur.execute('INSERT INTO nostalgia_requests(user_id,game,platform,details) VALUES(%s,%s,%s,%s) RETURNING id', (u.id, game, platform, details))
-                    rid = cur.fetchone()['id']
-                    cur.execute('SELECT reg_name, phone FROM users WHERE telegram_id=%s', (u.id,))
-                    uinfo = cur.fetchone()
-            context.user_data.clear()
-            await msg.reply_text(f'درخواست پورت #{rid} ثبت شد.', reply_markup=main_keyboard())
-
-            name = uinfo['reg_name'] if uinfo else 'ناشناس'
-            phone = uinfo['phone'] if uinfo else 'نامشخص'
-            uname = f"@{u.username}" if u.username else 'بدون‌یوزرنیم'
-
-            msg_to_admin = (
-                f"🎮 **درخواست پورت #{rid}**\n\n"
-                f"🎯 بازی: {game}\n"
-                f"💻 پلتفرم: {platform}\n"
-                f"📝 توضیحات: {details}\n\n"
-                f"👤 کاربر: {name}\n"
-                f"🔗 یوزرنیم: {uname}\n"
-                f"🆔 آیدی: `{u.id}`\n"
-                f"📱 تلفن: {phone}"
-            )
-
-            for aid in {SUPER_ADMIN, PORT_ADMIN}:
-                try:
-                    if aid:
-                        await context.bot.send_message(aid, msg_to_admin, parse_mode='Markdown')
-                except TelegramError:
-                    pass
-            return
-        if flow == 'custom_pack_game':
-            context.user_data.update(custom_pack_game=text, flow='custom_pack_platform')
-            await msg.reply_text('پلتفرم موردنظر را وارد کنید (مثلاً PC، PS4، Xbox):'); return
-        if flow == 'custom_pack_platform':
-            context.user_data.update(custom_pack_platform=text, flow='custom_pack_details')
-            await msg.reply_text('توضیحات/نیازمندی‌های پک اختصاصی خود را وارد کنید:'); return
-        if flow == 'custom_pack_details':
-            game = context.user_data['custom_pack_game']
-            platform = context.user_data['custom_pack_platform']
-            details = text
-            with db() as conn:
-                with conn.cursor() as cur:
-                    cur.execute('INSERT INTO custom_pack_requests(user_id,game,platform,details) VALUES(%s,%s,%s,%s) RETURNING id', (u.id, game, platform, details))
-                    rid = cur.fetchone()['id']
-                    cur.execute('SELECT reg_name, phone FROM users WHERE telegram_id=%s', (u.id,))
-                    uinfo = cur.fetchone()
-            context.user_data.clear()
-            await msg.reply_text(f'درخواست پک اختصاصی #{rid} ثبت شد. به زودی با شما تماس می‌گیریم.', reply_markup=main_keyboard())
-
-            name = uinfo['reg_name'] if uinfo else 'ناشناس'
-            phone = uinfo['phone'] if uinfo else 'نامشخص'
-            uname = f"@{u.username}" if u.username else 'بدون‌یوزرنیم'
-
-            msg_to_admin = (
-                f"📦 **درخواست پک اختصاصی #{rid}**\n\n"
-                f"🎯 بازی: {game}\n"
-                f"💻 پلتفرم: {platform}\n"
-                f"📝 توضیحات: {details}\n\n"
-                f"👤 کاربر: {name}\n"
-                f"🔗 یوزرنیم: {uname}\n"
-                f"🆔 آیدی: `{u.id}`\n"
-                f"📱 تلفن: {phone}"
-            )
-
-            try:
-                await context.bot.send_message(SUPER_ADMIN, msg_to_admin, parse_mode='Markdown')
-            except TelegramError:
-                pass
-            return
-        if flow == 'support':
-            file_id = msg.photo[-1].file_id if msg.photo else None
-            ftype = 'photo' if file_id else None
-            body = text if text else (msg.caption or '')
-            with db() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("INSERT INTO support_messages(user_id,direction,message_text,file_id,file_type) VALUES(%s,'user_to_admin',%s,%s,%s) RETURNING id", (u.id, body, file_id, ftype))
-                    sid = cur.fetchone()['id']
-            context.user_data.clear()
-            await msg.reply_text('پیام شما برای پشتیبانی ارسال شد.', reply_markup=main_keyboard())
-            for aid in ADMIN_IDS:
-                try:
-                    kb = InlineKeyboardMarkup([[InlineKeyboardButton('پاسخ به کاربر', callback_data=f'supportreply:{u.id}')]])
-                    if file_id:
-                        await context.bot.send_photo(aid, file_id, caption=f'پشتیبانی #{sid} از {u.id}\n{body}', reply_markup=kb)
-                    else:
-                        await context.bot.send_message(aid, f'پشتیبانی #{sid} از {u.id}\n{body}', reply_markup=kb)
-                except TelegramError:
-                    pass
-            return
-        if flow == 'finduser' and is_admin(u.id):
-            target = int(text)
-            with db() as conn:
-                with conn.cursor() as cur:
-                    cur.execute('SELECT * FROM users WHERE telegram_id=%s', (target,))
-                    r = cur.fetchone()
-            await msg.reply_text(f"کاربر: {target}\nنام: {r['first_name'] if r else 'یافت نشد'}\nموجودی: {int(r['wallet']):,} تومان" if r else f"کاربر: {target}\nنام: یافت نشد")
-            audit(u.id, 'user_lookup', str(target))
-            context.user_data.clear(); return
-        if flow == 'adm_wallet_id':
-            if not is_super(u.id): return
-            target = int(text)
-            context.user_data['adm_wallet_target'] = target
-            context.user_data['flow'] = 'adm_wallet_amount'
-            await msg.reply_text('مرحله ۲ از ۳:\nمبلغ مورد نظر را وارد کنید (برای کسر، عدد را با منفی وارد کنید. مثلاً: -50000):'); return
-        if flow == 'adm_wallet_amount':
-            if not is_super(u.id): return
-            amount = Decimal(text)
-            context.user_data['adm_wallet_amount'] = amount
-            context.user_data['flow'] = 'adm_wallet_reason'
-            await msg.reply_text('مرحله ۳ از ۳:\nدلیل تغییر موجودی را وارد کنید (مثلاً: بابت شارژ دستی):'); return
-        if flow == 'adm_wallet_reason':
-            if not is_super(u.id): return
-            target = context.user_data['adm_wallet_target']
-            amount = context.user_data['adm_wallet_amount']
-            reason = text
-            with db() as conn:
-                with conn.cursor() as cur:
-                    cur.execute('SELECT wallet FROM users WHERE telegram_id=%s FOR UPDATE', (target,))
-                    r = cur.fetchone()
-                    if not r:
-                        await msg.reply_text('کاربر یافت نشد. کاربر باید ابتدا ربات را /start کند.'); return
-                    if r['wallet'] + amount < 0:
-                        await msg.reply_text('موجودی نمی‌تواند منفی شود.'); return
-                    cur.execute('UPDATE users SET wallet=wallet+%s WHERE telegram_id=%s', (amount, target))
-                    cur.execute("INSERT INTO wallet_transactions(user_id,amount,kind,reason,admin_id,idempotency_key) VALUES(%s,%s,'admin_adjustment',%s,%s,%s)", (target, amount, reason, u.id, f'adj-{u.id}-{time.time_ns()}'))
-            audit(u.id, 'wallet_adjustment', str(target), f'{amount}: {reason}')
-            await msg.reply_text(f'موجودی کاربر {target} به میزان {amount:,} تغییر کرد.', reply_markup=main_keyboard())
-            try:
-                await context.bot.send_message(target, f'💰 موجودی کیف پول شما به میزان {amount:,} تومان تغییر کرد.\nدلیل: {reason}')
-            except TelegramError:
-                pass
-            context.user_data.clear(); return
-        if flow == 'adm_coupon_code':
-            if not is_super(u.id): return
-            code = text.upper()
-            if ' ' in code:
-                await msg.reply_text('کد نباید فاصله داشته باشد. دوباره وارد کنید:'); return
-            context.user_data['adm_coupon_code'] = code
-            context.user_data['flow'] = 'adm_coupon_value'
-            await msg.reply_text('مرحله ۲ از ۴:\nلطفاً **درصد تخفیف** را وارد کنید (مثلاً 20 برای ۲۰٪):'); return
-        if flow == 'adm_coupon_value':
-            if not is_super(u.id): return
-            try:
-                val = Decimal(text)
-                if val <= 0 or val > 100:
-                    await msg.reply_text('درصد تخفیف باید بین ۱ تا ۱۰۰ باشد.'); return
-                context.user_data['adm_coupon_value'] = val
-                context.user_data['flow'] = 'adm_coupon_maxuses'
-                await msg.reply_text('مرحله ۳ از ۴:\nحداکثر تعداد استفاده از این کد را وارد کنید (یا 0 برای نامحدود):')
-            except InvalidOperation:
-                await msg.reply_text('عدد معتبر نیست. لطفاً دوباره وارد کنید.')
-            return
-        if flow == 'adm_coupon_maxuses':
-            if not is_super(u.id): return
-            mu = int(text)
-            context.user_data['adm_coupon_maxuses'] = mu if mu > 0 else None
-            context.user_data['flow'] = 'adm_coupon_days'
-            await msg.reply_text('مرحله ۴ از ۴:\nاین کد چند روز اعتبار داشته باشد؟ (0 برای بدون انقضا):'); return
-        if flow == 'adm_coupon_days':
-            if not is_super(u.id): return
-            days = int(text)
-            code = context.user_data['adm_coupon_code']
-            value = context.user_data['adm_coupon_value']
-            mu = context.user_data['adm_coupon_maxuses']
-            d = days if days > 0 else None
-
-            with db() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("INSERT INTO coupons(code,discount_type,value,max_uses,expires_at,created_by) VALUES(%s,'percent',%s,%s,CASE WHEN %s IS NULL THEN NULL ELSE now()+(%s * interval '1 day') END,%s)", (code, value, mu, d, d, u.id))
-            audit(u.id, 'coupon_created', code, f'percent {value}')
-            await msg.reply_text(f'کد تخفیف {code} با موفقیت ایجاد شد.', reply_markup=main_keyboard())
-            context.user_data.clear(); return
-
-        if flow == 'edit_links_text':
-            if not is_super(u.id): return
-            pid = context.user_data.get('edit_links_pid')
-            links = [line.strip() for line in text.split('\n') if line.strip()]
-            with db() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("DELETE FROM product_links WHERE product_id=%s", (pid,))
-                    for link in links:
-                        cur.execute("INSERT INTO product_links(product_id, link) VALUES(%s, %s)", (pid, link))
-            audit(u.id, 'links_updated', str(pid), f'{len(links)} links')
-            await msg.reply_text(f'✅ تعداد {len(links)} لینک با موفقیت برای این محصول ثبت شد.', reply_markup=main_keyboard())
-            context.user_data.clear(); return
-
-        if flow == 'edit_price_text':
-            if not is_super(u.id): return
-            pid = context.user_data.get('edit_price_pid')
-            new_price = Decimal(text)
-            with db() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("UPDATE products SET price=%s WHERE id=%s", (new_price, pid))
-            audit(u.id, 'price_updated', str(pid), f'{new_price}')
-            await msg.reply_text(f'✅ قیمت محصول با موفقیت به {int(new_price):,} تومان تغییر یافت.', reply_markup=main_keyboard())
-            context.user_data.clear(); return
-
-        if flow == 'support_reply_target' and is_admin(u.id):
-            target = int(context.user_data['support_target']); body = text
-            try:
-                await context.bot.send_message(target, '💬 پاسخ پشتیبانی:\n' + body)
-            except TelegramError:
-                pass
-            with db() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("INSERT INTO support_messages(user_id,direction,message_text,admin_id) VALUES(%s,'admin_to_user',%s,%s)", (target, body, u.id))
-            audit(u.id, 'support_reply', str(target), body)
-            context.user_data.clear()
-            await msg.reply_text('پاسخ ارسال شد.')
-            return
-        if flow == 'support_reply' and is_admin(u.id):
-            p = text.split(',', 1)
-            if len(p) != 2:
-                await msg.reply_text('قالب: TelegramID,متن پاسخ'); return
-            target = int(p[0]); body = p[1]
-            try:
-                await context.bot.send_message(target, '💬 پاسخ پشتیبانی:\n' + body)
-            except TelegramError:
-                pass
-            with db() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("INSERT INTO support_messages(user_id,direction,message_text,admin_id) VALUES(%s,'admin_to_user',%s,%s)", (target, body, u.id))
-            audit(u.id, 'support_reply', str(target), body)
-            await msg.reply_text('پاسخ ارسال شد.')
-            context.user_data.clear(); return
-        if flow == 'port_reply' and is_admin(u.id):
-            rid = context.user_data['port_id']
-            with db() as conn:
-                with conn.cursor() as cur:
-                    cur.execute('UPDATE nostalgia_requests SET admin_reply=%s,updated_at=now() WHERE id=%s RETURNING user_id', (text, rid))
-                    r = cur.fetchone()
-            if r:
-                try:
-                    await context.bot.send_message(r['user_id'], f'پاسخ درخواست پورت #{rid}:\n{text}')
-                except TelegramError:
-                    pass
-            audit(u.id, 'port_reply', str(rid), text)
-            context.user_data.clear()
-            await msg.reply_text('پاسخ ارسال شد.')
-            return
-
-        if flow == 'broadcast' and is_super(u.id):
-            context.user_data.clear()
-            with db() as conn:
-                with conn.cursor() as cur:
-                    cur.execute('SELECT telegram_id FROM users')
-                    users = [r['telegram_id'] for r in cur.fetchall()]
-            sent, failed = 0, 0
-            for target in users:
-                try:
-                    await context.bot.send_message(target, text)
-                    sent += 1
-                    await asyncio.sleep(0.05)
-                except TelegramError:
-                    failed += 1
-            await msg.reply_text(f'✅ ارسال شد: {sent}\n❌ ناموفق: {failed}', reply_markup=main_keyboard())
-            audit(u.id, 'broadcast', 'all', f'sent={sent} failed={failed}')
-            return
-
-        if is_admin(u.id) and text.startswith('/admin'):
-            await msg.reply_text('پنل مدیریت:', reply_markup=admin_kb()); return
-        await msg.reply_text('از منوی زیر انتخاب کنید یا /start را بزنید.', reply_markup=main_keyboard())
-    except (ValueError, InvalidOperation):
-        await msg.reply_text('ورودی معتبر نیست. لطفاً دوباره بررسی کنید.')
-    except Exception as e:
-        log.exception('Message handler error')
-        try:
-            await msg.reply_text('خطایی رخ داد. لطفاً دوباره تلاش کنید.')
-        except TelegramError:
-            pass
-
-
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    log.error('Unhandled Telegram update error', exc_info=context.error)
-    if isinstance(update, Update) and update.effective_user and is_admin(update.effective_user.id):
-        try:
-            await update.effective_message.reply_text('خطای داخلی رخ داد؛ جزئیات محرمانه در پیام نمایش داده نمی‌شود.')
-        except Exception:
-            pass
-
-
-def build_application() -> Application:
-    application = Application.builder().token(BOT_TOKEN).build()
-    application.add_handler(CommandHandler('start', start))
-    application.add_handler(CommandHandler('link', cmd_link))
-    application.add_handler(CallbackQueryHandler(callback))
-    application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, message_handler))
-    application.add_error_handler(error_handler)
-    return application
-
-
-def main():
-    if not BOT_TOKEN:
-        raise RuntimeError('متغیر BOT_TOKEN تنظیم نشده است.')
-    if not DATABASE_URL:
-        raise RuntimeError('متغیر DATABASE_URL تنظیم نشده است.')
-    init_db()
-    application = build_application()
-    log.info('RipperMods bot starting')
-    application.run_polling(drop_pending_updates=False, close_loop=False, stop_signals=None)
-
-
-_bot_thread = None
-_bot_error = None
-
-
-def run_bot_thread():
-    global _bot_error
-    try:
-        asyncio.set_event_loop(asyncio.new_event_loop())
-        main()
-    except Exception as exc:
-        _bot_error = exc
-        log.exception('Bot stopped during startup/runtime')
-
-
-def _start_bot_thread_once():
-    global _bot_thread
-    if _bot_thread is not None and _bot_thread.is_alive():
-        return
-    _bot_thread = threading.Thread(target=run_bot_thread, name='telegram-bot', daemon=True)
-    _bot_thread.start()
-
-
-if __name__ == '__main__':
-    try:
-        init_db()
-    except Exception:
-        log.exception('init_db failed at startup')
-    _start_bot_thread_once()
-    port = int(os.getenv('PORT', '10000'))
-    log.info('Starting Flask health server on 0.0.0.0:%s', port)
-    app.run(host='0.0.0.0', port=port, use_reloader=False)
-else:
-    try:
-        init_db()
-    except Exception:
-        log.exception('init_db failed on import')
-    _start_bot_thread_once()
