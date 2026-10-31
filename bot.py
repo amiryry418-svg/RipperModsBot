@@ -2354,3 +2354,377 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if flow == 'coupon_apply':
             code = text.upper()
             with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT * FROM coupons WHERE code=%s AND active=true AND (expires_at IS NULL OR expires_at>now()) AND (max_uses IS NULL OR uses<max_uses)", (code,))
+                    cp = cur.fetchone()
+            if not cp:
+                await msg.reply_text('کد نامعتبر، منقضی یا غیرفعال است.'); return
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute('SELECT 1 FROM coupon_uses WHERE coupon_id=%s AND user_id=%s', (cp['id'], u.id))
+                    used = cur.fetchone()
+            if used:
+                await msg.reply_text('این کد را قبلاً استفاده کرده‌اید.'); return
+            context.user_data.update(coupon_code=code, flow=None)
+            target_pid = context.user_data.pop('coupon_target_pid', None)
+            if target_pid:
+                with db() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute('SELECT name FROM products WHERE id=%s', (target_pid,))
+                        pr = cur.fetchone()
+                await msg.reply_text('✅ کد تخفیف با موفقیت اعمال شد.', reply_markup=main_keyboard())
+                await show_product_details(update, context, pr['name'])
+            else:
+                await msg.reply_text('✅ کد ذخیره شد. حالا روی محصولی که می‌خواید تخفیف بگیرید کلیک کنید.', reply_markup=main_keyboard())
+            return
+        if flow == 'port_game':
+            context.user_data.update(port_game=text, flow='port_platform')
+            await msg.reply_text('پلتفرم موردنظر را وارد کنید (مثلاً PC، Android، کنسول):'); return
+        if flow == 'port_platform':
+            context.user_data.update(port_platform=text, flow='port_details')
+            await msg.reply_text('توضیحات اضافی را وارد کنید یا «ندارد» بنویسید:'); return
+        if flow == 'port_details':
+            game = context.user_data['port_game']
+            platform = context.user_data['port_platform']
+            details = '' if text == 'ندارد' else text
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute('INSERT INTO nostalgia_requests(user_id,game,platform,details) VALUES(%s,%s,%s,%s) RETURNING id', (u.id, game, platform, details))
+                    rid = cur.fetchone()['id']
+                    cur.execute('SELECT reg_name, phone FROM users WHERE telegram_id=%s', (u.id,))
+                    uinfo = cur.fetchone()
+            context.user_data.clear()
+            await msg.reply_text(f'درخواست پورت #{rid} ثبت شد.', reply_markup=main_keyboard())
+
+            name = uinfo['reg_name'] if uinfo else 'ناشناس'
+            phone = uinfo['phone'] if uinfo else 'نامشخص'
+            uname = f"@{u.username}" if u.username else 'بدون‌یوزرنیم'
+
+            msg_to_admin = (
+                f"🎮 **درخواست پورت #{rid}**\n\n"
+                f"🎯 بازی: {game}\n"
+                f"💻 پلتفرم: {platform}\n"
+                f"📝 توضیحات: {details}\n\n"
+                f"👤 کاربر: {name}\n"
+                f"🔗 یوزرنیم: {uname}\n"
+                f"🆔 آیدی: `{u.id}`\n"
+                f"📱 تلفن: {phone}"
+            )
+
+            for aid in {SUPER_ADMIN, PORT_ADMIN}:
+                try:
+                    if aid:
+                        await context.bot.send_message(aid, msg_to_admin, parse_mode='Markdown')
+                except TelegramError:
+                    pass
+            return
+        if flow == 'custom_pack_game':
+            context.user_data.update(custom_pack_game=text, flow='custom_pack_platform')
+            await msg.reply_text('پلتفرم موردنظر را وارد کنید (مثلاً PC، PS4، Xbox):'); return
+        if flow == 'custom_pack_platform':
+            context.user_data.update(custom_pack_platform=text, flow='custom_pack_details')
+            await msg.reply_text('توضیحات/نیازمندی‌های پک اختصاصی خود را وارد کنید:'); return
+        if flow == 'custom_pack_details':
+            game = context.user_data['custom_pack_game']
+            platform = context.user_data['custom_pack_platform']
+            details = text
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute('INSERT INTO custom_pack_requests(user_id,game,platform,details) VALUES(%s,%s,%s,%s) RETURNING id', (u.id, game, platform, details))
+                    rid = cur.fetchone()['id']
+                    cur.execute('SELECT reg_name, phone FROM users WHERE telegram_id=%s', (u.id,))
+                    uinfo = cur.fetchone()
+            context.user_data.clear()
+            await msg.reply_text(f'درخواست پک اختصاصی #{rid} ثبت شد. به زودی با شما تماس می‌گیریم.', reply_markup=main_keyboard())
+
+            name = uinfo['reg_name'] if uinfo else 'ناشناس'
+            phone = uinfo['phone'] if uinfo else 'نامشخص'
+            uname = f"@{u.username}" if u.username else 'بدون‌یوزرنیم'
+
+            msg_to_admin = (
+                f"📦 **درخواست پک اختصاصی #{rid}**\n\n"
+                f"🎯 بازی: {game}\n"
+                f"💻 پلتفرم: {platform}\n"
+                f"📝 توضیحات: {details}\n\n"
+                f"👤 کاربر: {name}\n"
+                f"🔗 یوزرنیم: {uname}\n"
+                f"🆔 آیدی: `{u.id}`\n"
+                f"📱 تلفن: {phone}"
+            )
+
+            try:
+                await context.bot.send_message(SUPER_ADMIN, msg_to_admin, parse_mode='Markdown')
+            except TelegramError:
+                pass
+            return
+        if flow == 'support':
+            file_id = msg.photo[-1].file_id if msg.photo else None
+            ftype = 'photo' if file_id else None
+            body = text if text else (msg.caption or '')
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("INSERT INTO support_messages(user_id,direction,message_text,file_id,file_type) VALUES(%s,'user_to_admin',%s,%s,%s) RETURNING id", (u.id, body, file_id, ftype))
+                    sid = cur.fetchone()['id']
+            context.user_data.clear()
+            await msg.reply_text('پیام شما برای پشتیبانی ارسال شد.', reply_markup=main_keyboard())
+            for aid in ADMIN_IDS:
+                try:
+                    kb = InlineKeyboardMarkup([[InlineKeyboardButton('پاسخ به کاربر', callback_data=f'supportreply:{u.id}')]])
+                    if file_id:
+                        await context.bot.send_photo(aid, file_id, caption=f'پشتیبانی #{sid} از {u.id}\n{body}', reply_markup=kb)
+                    else:
+                        await context.bot.send_message(aid, f'پشتیبانی #{sid} از {u.id}\n{body}', reply_markup=kb)
+                except TelegramError:
+                    pass
+            return
+        if flow == 'finduser' and is_admin(u.id):
+            target = int(text)
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute('SELECT * FROM users WHERE telegram_id=%s', (target,))
+                    r = cur.fetchone()
+            await msg.reply_text(f"کاربر: {target}\nنام: {r['first_name'] if r else 'یافت نشد'}\nموجودی: {int(r['wallet']):,} تومان" if r else f"کاربر: {target}\nنام: یافت نشد")
+            audit(u.id, 'user_lookup', str(target))
+            context.user_data.clear(); return
+        if flow == 'adm_wallet_id':
+            if not is_super(u.id): return
+            target = int(text)
+            context.user_data['adm_wallet_target'] = target
+            context.user_data['flow'] = 'adm_wallet_amount'
+            await msg.reply_text('مرحله ۲ از ۳:\nمبلغ مورد نظر را وارد کنید (برای کسر، عدد را با منفی وارد کنید. مثلاً: -50000):'); return
+        if flow == 'adm_wallet_amount':
+            if not is_super(u.id): return
+            amount = Decimal(text)
+            context.user_data['adm_wallet_amount'] = amount
+            context.user_data['flow'] = 'adm_wallet_reason'
+            await msg.reply_text('مرحله ۳ از ۳:\nدلیل تغییر موجودی را وارد کنید (مثلاً: بابت شارژ دستی):'); return
+        if flow == 'adm_wallet_reason':
+            if not is_super(u.id): return
+            target = context.user_data['adm_wallet_target']
+            amount = context.user_data['adm_wallet_amount']
+            reason = text
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute('SELECT wallet FROM users WHERE telegram_id=%s FOR UPDATE', (target,))
+                    r = cur.fetchone()
+                    if not r:
+                        await msg.reply_text('کاربر یافت نشد. کاربر باید ابتدا ربات را /start کند.'); return
+                    if r['wallet'] + amount < 0:
+                        await msg.reply_text('موجودی نمی‌تواند منفی شود.'); return
+                    cur.execute('UPDATE users SET wallet=wallet+%s WHERE telegram_id=%s', (amount, target))
+                    cur.execute("INSERT INTO wallet_transactions(user_id,amount,kind,reason,admin_id,idempotency_key) VALUES(%s,%s,'admin_adjustment',%s,%s,%s)", (target, amount, reason, u.id, f'adj-{u.id}-{time.time_ns()}'))
+            audit(u.id, 'wallet_adjustment', str(target), f'{amount}: {reason}')
+            await msg.reply_text(f'موجودی کاربر {target} به میزان {amount:,} تغییر کرد.', reply_markup=main_keyboard())
+            try:
+                await context.bot.send_message(target, f'💰 موجودی کیف پول شما به میزان {amount:,} تومان تغییر کرد.\nدلیل: {reason}')
+            except TelegramError:
+                pass
+            context.user_data.clear(); return
+        if flow == 'adm_coupon_code':
+            if not is_super(u.id): return
+            code = text.upper()
+            if ' ' in code:
+                await msg.reply_text('کد نباید فاصله داشته باشد. دوباره وارد کنید:'); return
+            context.user_data['adm_coupon_code'] = code
+            context.user_data['flow'] = 'adm_coupon_value'
+            await msg.reply_text('مرحله ۲ از ۴:\nلطفاً **درصد تخفیف** را وارد کنید (مثلاً 20 برای ۲۰٪):'); return
+        if flow == 'adm_coupon_value':
+            if not is_super(u.id): return
+            try:
+                val = Decimal(text)
+                if val <= 0 or val > 100:
+                    await msg.reply_text('درصد تخفیف باید بین ۱ تا ۱۰۰ باشد.'); return
+                context.user_data['adm_coupon_value'] = val
+                context.user_data['flow'] = 'adm_coupon_maxuses'
+                await msg.reply_text('مرحله ۳ از ۴:\nحداکثر تعداد استفاده از این کد را وارد کنید (یا 0 برای نامحدود):')
+            except InvalidOperation:
+                await msg.reply_text('عدد معتبر نیست. لطفاً دوباره وارد کنید.')
+            return
+        if flow == 'adm_coupon_maxuses':
+            if not is_super(u.id): return
+            mu = int(text)
+            context.user_data['adm_coupon_maxuses'] = mu if mu > 0 else None
+            context.user_data['flow'] = 'adm_coupon_days'
+            await msg.reply_text('مرحله ۴ از ۴:\nاین کد چند روز اعتبار داشته باشد؟ (0 برای بدون انقضا):'); return
+        if flow == 'adm_coupon_days':
+            if not is_super(u.id): return
+            days = int(text)
+            code = context.user_data['adm_coupon_code']
+            value = context.user_data['adm_coupon_value']
+            mu = context.user_data['adm_coupon_maxuses']
+            d = days if days > 0 else None
+
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("INSERT INTO coupons(code,discount_type,value,max_uses,expires_at,created_by) VALUES(%s,'percent',%s,%s,CASE WHEN %s IS NULL THEN NULL ELSE now()+(%s * interval '1 day') END,%s)", (code, value, mu, d, d, u.id))
+            audit(u.id, 'coupon_created', code, f'percent {value}')
+            await msg.reply_text(f'کد تخفیف {code} با موفقیت ایجاد شد.', reply_markup=main_keyboard())
+            context.user_data.clear(); return
+
+        if flow == 'edit_links_text':
+            if not is_super(u.id): return
+            pid = context.user_data.get('edit_links_pid')
+            links = [line.strip() for line in text.split('\n') if line.strip()]
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("DELETE FROM product_links WHERE product_id=%s", (pid,))
+                    for link in links:
+                        cur.execute("INSERT INTO product_links(product_id, link) VALUES(%s, %s)", (pid, link))
+            audit(u.id, 'links_updated', str(pid), f'{len(links)} links')
+            await msg.reply_text(f'✅ تعداد {len(links)} لینک با موفقیت برای این محصول ثبت شد.', reply_markup=main_keyboard())
+            context.user_data.clear(); return
+
+        if flow == 'edit_price_text':
+            if not is_super(u.id): return
+            pid = context.user_data.get('edit_price_pid')
+            new_price = Decimal(text)
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("UPDATE products SET price=%s WHERE id=%s", (new_price, pid))
+            audit(u.id, 'price_updated', str(pid), f'{new_price}')
+            await msg.reply_text(f'✅ قیمت محصول با موفقیت به {int(new_price):,} تومان تغییر یافت.', reply_markup=main_keyboard())
+            context.user_data.clear(); return
+
+        if flow == 'support_reply_target' and is_admin(u.id):
+            target = int(context.user_data['support_target']); body = text
+            try:
+                await context.bot.send_message(target, '💬 پاسخ پشتیبانی:\n' + body)
+            except TelegramError:
+                pass
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("INSERT INTO support_messages(user_id,direction,message_text,admin_id) VALUES(%s,'admin_to_user',%s,%s)", (target, body, u.id))
+            audit(u.id, 'support_reply', str(target), body)
+            context.user_data.clear()
+            await msg.reply_text('پاسخ ارسال شد.')
+            return
+        if flow == 'support_reply' and is_admin(u.id):
+            p = text.split(',', 1)
+            if len(p) != 2:
+                await msg.reply_text('قالب: TelegramID,متن پاسخ'); return
+            target = int(p[0]); body = p[1]
+            try:
+                await context.bot.send_message(target, '💬 پاسخ پشتیبانی:\n' + body)
+            except TelegramError:
+                pass
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("INSERT INTO support_messages(user_id,direction,message_text,admin_id) VALUES(%s,'admin_to_user',%s,%s)", (target, body, u.id))
+            audit(u.id, 'support_reply', str(target), body)
+            await msg.reply_text('پاسخ ارسال شد.')
+            context.user_data.clear(); return
+        if flow == 'port_reply' and is_admin(u.id):
+            rid = context.user_data['port_id']
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute('UPDATE nostalgia_requests SET admin_reply=%s,updated_at=now() WHERE id=%s RETURNING user_id', (text, rid))
+                    r = cur.fetchone()
+            if r:
+                try:
+                    await context.bot.send_message(r['user_id'], f'پاسخ درخواست پورت #{rid}:\n{text}')
+                except TelegramError:
+                    pass
+            audit(u.id, 'port_reply', str(rid), text)
+            context.user_data.clear()
+            await msg.reply_text('پاسخ ارسال شد.')
+            return
+
+        if flow == 'broadcast' and is_super(u.id):
+            context.user_data.clear()
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute('SELECT telegram_id FROM users')
+                    users = [r['telegram_id'] for r in cur.fetchall()]
+            sent, failed = 0, 0
+            for target in users:
+                try:
+                    await context.bot.send_message(target, text)
+                    sent += 1
+                    await asyncio.sleep(0.05)
+                except TelegramError:
+                    failed += 1
+            await msg.reply_text(f'✅ ارسال شد: {sent}\n❌ ناموفق: {failed}', reply_markup=main_keyboard())
+            audit(u.id, 'broadcast', 'all', f'sent={sent} failed={failed}')
+            return
+
+        if is_admin(u.id) and text.startswith('/admin'):
+            await msg.reply_text('پنل مدیریت:', reply_markup=admin_kb()); return
+        await msg.reply_text('از منوی زیر انتخاب کنید یا /start را بزنید.', reply_markup=main_keyboard())
+    except (ValueError, InvalidOperation):
+        await msg.reply_text('ورودی معتبر نیست. لطفاً دوباره بررسی کنید.')
+    except Exception as e:
+        log.exception('Message handler error')
+        try:
+            await msg.reply_text('خطایی رخ داد. لطفاً دوباره تلاش کنید.')
+        except TelegramError:
+            pass
+
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    log.error('Unhandled Telegram update error', exc_info=context.error)
+    if (isinstance(update, Update) and update.effective_chat and update.effective_chat.type == 'private'
+            and update.effective_user and is_admin(update.effective_user.id)):
+        try:
+            await update.effective_message.reply_text('خطای داخلی رخ داد؛ جزئیات محرمانه در پیام نمایش داده نمی‌شود.')
+        except Exception:
+            pass
+
+
+def build_application() -> Application:
+    application = Application.builder().token(BOT_TOKEN).build()
+    application.add_handler(CommandHandler('start', start))
+    application.add_handler(CommandHandler('link', cmd_link))
+    application.add_handler(CallbackQueryHandler(callback))
+    application.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.ALL & ~filters.COMMAND, message_handler))
+    application.add_error_handler(error_handler)
+    return application
+
+
+def main():
+    if not BOT_TOKEN:
+        raise RuntimeError('متغیر BOT_TOKEN تنظیم نشده است.')
+    if not DATABASE_URL:
+        raise RuntimeError('متغیر DATABASE_URL تنظیم نشده است.')
+    init_db()
+    application = build_application()
+    log.info('RipperMods bot starting')
+    application.run_polling(drop_pending_updates=False, close_loop=False, stop_signals=None)
+
+
+_bot_thread = None
+_bot_error = None
+
+
+def run_bot_thread():
+    global _bot_error
+    try:
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        main()
+    except Exception as exc:
+        _bot_error = exc
+        log.exception('Bot stopped during startup/runtime')
+
+
+def _start_bot_thread_once():
+    global _bot_thread
+    if _bot_thread is not None and _bot_thread.is_alive():
+        return
+    _bot_thread = threading.Thread(target=run_bot_thread, name='telegram-bot', daemon=True)
+    _bot_thread.start()
+
+
+if __name__ == '__main__':
+    try:
+        init_db()
+    except Exception:
+        log.exception('init_db failed at startup')
+    _start_bot_thread_once()
+    port = int(os.getenv('PORT', '10000'))
+    log.info('Starting Flask health server on 0.0.0.0:%s', port)
+    app.run(host='0.0.0.0', port=port, use_reloader=False)
+else:
+    try:
+        init_db()
+    except Exception:
+        log.exception('init_db failed on import')
+    _start_bot_thread_once()
