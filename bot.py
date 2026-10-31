@@ -90,6 +90,18 @@ def _get_decimal_env(name: str, default: str = '0') -> Decimal:
 
 REDOWNLOAD_PRICE = _get_decimal_env('REDOWNLOAD_PRICE', '150000')
 
+REQUIRED_CHANNELS = ['@Rippermods', '@miomusici']
+CHANNEL_NAMES = {'@Rippermods': 'RipperMods', '@miomusici': 'Miomusici'}
+
+BANNED_IDS = {8649548594}
+
+def is_banned(uid: int) -> bool:
+    return uid in BANNED_IDS
+
+ADMIN4 = 6058245005
+RESELLER_COMMISSION_PERCENT = Decimal('25')
+OUR_SHARE_PERCENT = Decimal('75')
+
 _db_initialized = False
 _db_lock = threading.Lock()
 
@@ -212,6 +224,7 @@ def init_db():
             """ALTER TABLE products ADD COLUMN IF NOT EXISTS upgrade_price NUMERIC(14,2) DEFAULT 0""",
             """CREATE TABLE IF NOT EXISTS orders (id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL REFERENCES users(telegram_id), product_id BIGINT REFERENCES products(id), product_name TEXT NOT NULL, amount NUMERIC(14,2) NOT NULL CHECK(amount >= 0), payment_method TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected','delivered','cancelled')), receipt_file_id TEXT, coupon_id BIGINT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), wallet_debited BOOLEAN NOT NULL DEFAULT false, delivery_sent BOOLEAN NOT NULL DEFAULT false, is_upgrade BOOLEAN NOT NULL DEFAULT false)""",
             """ALTER TABLE orders ADD COLUMN IF NOT EXISTS is_upgrade BOOLEAN NOT NULL DEFAULT false""",
+            """ALTER TABLE orders ADD COLUMN IF NOT EXISTS link_expires_at TIMESTAMPTZ""",
             """ALTER TABLE orders ADD COLUMN IF NOT EXISTS tracking_code TEXT""",
             """ALTER TABLE orders ADD COLUMN IF NOT EXISTS receipt_message_id BIGINT""",
             """ALTER TABLE orders ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ""",
@@ -244,6 +257,11 @@ def init_db():
             """CREATE TABLE IF NOT EXISTS link_codes (code TEXT PRIMARY KEY, telegram_id BIGINT NOT NULL REFERENCES users(telegram_id) ON DELETE CASCADE, used BOOLEAN NOT NULL DEFAULT false, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())""",
             "CREATE INDEX IF NOT EXISTS idx_link_codes_telegram ON link_codes(telegram_id)",
             """CREATE TABLE IF NOT EXISTS lottery_participants (id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL REFERENCES users(telegram_id) ON DELETE CASCADE, joined_at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE(user_id))""",
+            """CREATE TABLE IF NOT EXISTS reseller_requests (id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL REFERENCES users(telegram_id), full_name TEXT NOT NULL, phone TEXT NOT NULL, telegram_id_text TEXT NOT NULL, shop_name TEXT NOT NULL, shop_address TEXT NOT NULL, shop_phone TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected')), reviewed_by BIGINT, reviewed_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now())""",
+            """CREATE TABLE IF NOT EXISTS resellers (user_id BIGINT PRIMARY KEY REFERENCES users(telegram_id), request_id BIGINT REFERENCES reseller_requests(id), approved_by BIGINT, approved_at TIMESTAMPTZ NOT NULL DEFAULT now(), active BOOLEAN NOT NULL DEFAULT true)""",
+            """CREATE TABLE IF NOT EXISTS reseller_sales (id BIGSERIAL PRIMARY KEY, reseller_id BIGINT NOT NULL REFERENCES resellers(user_id), product_id BIGINT REFERENCES products(id), product_name TEXT NOT NULL, sale_amount NUMERIC(14,2) NOT NULL CHECK(sale_amount >= 0), commission_amount NUMERIC(14,2) NOT NULL DEFAULT 0, our_share_amount NUMERIC(14,2) NOT NULL DEFAULT 0, customer TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ NOT NULL DEFAULT now())""",
+            "CREATE INDEX IF NOT EXISTS idx_reseller_requests_user_status ON reseller_requests(user_id,status)",
+            "CREATE INDEX IF NOT EXISTS idx_reseller_sales_reseller_created ON reseller_sales(reseller_id,created_at DESC)",
             "CREATE INDEX IF NOT EXISTS idx_orders_user_created ON orders(user_id, created_at DESC)",
             "CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)",
             "CREATE INDEX IF NOT EXISTS idx_topups_status ON topups(status)",
@@ -345,12 +363,92 @@ async def log_reply_to(context: ContextTypes.DEFAULT_TYPE, reply_to_message_id: 
         return False
 
 
+async def check_membership(context: ContextTypes.DEFAULT_TYPE, user_id: int):
+    """Check whether a user belongs to every required Telegram channel."""
+    missing_channels = []
+    for channel in REQUIRED_CHANNELS:
+        try:
+            member = await context.bot.get_chat_member(chat_id=channel, user_id=user_id)
+            if member.status not in ('member', 'administrator', 'creator'):
+                missing_channels.append(channel)
+        except TelegramError:
+            # If Telegram cannot verify membership, do not grant access.
+            log.exception('Could not verify membership for user %s in %s', user_id, channel)
+            missing_channels.append(channel)
+    return (len(missing_channels) == 0, missing_channels)
+
+
+def not_member_kb(missing_channels):
+    channel_urls = {
+        '@Rippermods': 'https://t.me/Rippermods',
+        '@miomusici': 'https://t.me/miomusici',
+    }
+    rows = []
+    for channel in missing_channels:
+        name = CHANNEL_NAMES.get(channel, channel)
+        url = channel_urls.get(channel)
+        if url:
+            rows.append([InlineKeyboardButton(f'عضویت در کانال {name}', url=url)])
+    return InlineKeyboardMarkup(rows)
+
+
+async def require_channel_membership(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> bool:
+    """Send the join prompt when a non-admin is missing a required channel."""
+    if is_admin(user_id):
+        return True
+    is_member, missing = await check_membership(context, user_id)
+    if not is_member:
+        await update.effective_message.reply_text(
+            '⚠️ برای استفاده از ربات، ابتدا در کانال‌های زیر عضو شوید:',
+            reply_markup=not_member_kb(missing)
+        )
+        return False
+    return True
+
+
 def is_admin(uid: int) -> bool:
-    return uid in ADMIN_IDS
+    return uid in ADMIN_IDS or uid == ADMIN4
 
 
 def is_super(uid: int) -> bool:
     return uid == SUPER_ADMIN
+
+
+def _is_reseller(uid: int) -> bool:
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT 1 FROM resellers WHERE user_id=%s AND active=true', (uid,))
+            return cur.fetchone() is not None
+
+
+async def reseller_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT status FROM reseller_requests WHERE user_id=%s ORDER BY id DESC LIMIT 1", (uid,))
+            request = cur.fetchone()
+            cur.execute('SELECT 1 FROM resellers WHERE user_id=%s AND active=true', (uid,))
+            approved = cur.fetchone()
+            if approved:
+                cur.execute('SELECT COUNT(*) AS sales, COALESCE(SUM(commission_amount),0) AS profit, COALESCE(SUM(our_share_amount),0) AS debt FROM reseller_sales WHERE reseller_id=%s', (uid,))
+                stats = cur.fetchone()
+    if approved:
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton('➕ ثبت فروش جدید', callback_data='reseller:add_sale')],
+            [InlineKeyboardButton('📜 تاریخچه فروش', callback_data='reseller:history')]
+        ])
+        await update.effective_message.reply_text(
+            f"🏪 پنل نمایندگی RipperMods\n\n📦 تعداد فروش: {stats['sales']}\n💰 سود شما: {int(stats['profit']):,} تومان\n💳 سهم قابل پرداخت به RipperMods: {int(stats['debt']):,} تومان",
+            reply_markup=kb)
+        return
+    if request and request['status'] == 'pending':
+        await update.effective_message.reply_text('⏳ درخواست نمایندگی شما در حال بررسی است.', reply_markup=main_keyboard())
+        return
+    if request and request['status'] == 'rejected':
+        await update.effective_message.reply_text('❌ درخواست نمایندگی شما رد شده است. برای اطلاعات بیشتر با پشتیبانی تماس بگیرید.', reply_markup=main_keyboard())
+        return
+    context.user_data.update(flow='reseller_full_name', reseller_form={})
+    await update.effective_message.reply_text('🏪 درخواست نمایندگی RipperMods\n\nمرحله ۱ از ۷: نام و نام خانوادگی خود را وارد کنید.', reply_markup=back_kb())
 
 
 def main_keyboard():
@@ -362,7 +460,7 @@ def main_keyboard():
         [KeyboardButton('🎮 درخواست پورت'), KeyboardButton('📦 درخواست پک اختصاصی')],
         [KeyboardButton('💬 پشتیبانی'), KeyboardButton('🆓 دریافت بیس رایگان')],
         [KeyboardButton('🔄 دریافت مجدد لینک'), KeyboardButton('🔄 اتصال مجدد / شروع مجدد')],
-        [KeyboardButton('🎁 قرعه‌کشی افتتاحیه')]
+        [KeyboardButton('🎁 قرعه‌کشی افتتاحیه'), KeyboardButton('🏪 پنل نمایندگی')]
     ], resize_keyboard=True)
 
 
@@ -387,6 +485,10 @@ def admin_kb():
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
+    if not u or is_banned(u.id):
+        return
+    if not await require_channel_membership(update, context, u.id):
+        return
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute('INSERT INTO users(telegram_id,username,first_name) VALUES(%s,%s,%s) ON CONFLICT(telegram_id) DO UPDATE SET username=EXCLUDED.username,first_name=EXCLUDED.first_name,last_seen=now() RETURNING phone, reg_name', (u.id, u.username, u.first_name))
@@ -442,7 +544,7 @@ async def start_lottery(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def run_draw(context, uid, q):
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT user_id FROM lottery_participants ORDER BY RANDOM() LIMIT 3")
+            cur.execute("SELECT user_id FROM lottery_participants WHERE user_id != ALL(%s) ORDER BY RANDOM() LIMIT 3", (list(BANNED_IDS),))
             winners = [r['user_id'] for r in cur.fetchall()]
             if winners:
                 cur.execute("DELETE FROM lottery_participants")
@@ -789,76 +891,123 @@ async def review_order(q, context, rid, decision, admin_id):
 
 
 async def deliver(context, uid, order_id, product_name):
-    with db() as conn:
-        with conn.cursor() as cur:
-            cur.execute("UPDATE orders SET status='delivered',delivery_sent=true,updated_at=now() WHERE id=%s AND status IN ('approved', 'delivered') AND delivery_sent=false RETURNING id", (order_id,))
-            row = cur.fetchone()
-    if not row:
-        log.warning(f"Order {order_id} not delivered: row not found or already sent.")
-        try:
-            await context.bot.send_message(uid, '⚠️ لینک‌های این سفارش قبلاً ارسال شده است. برای دریافت مجدد از «🔄 دریافت مجدد لینک» استفاده کنید.')
-        except TelegramError:
-            pass
-        return
-
+    """Deliver download links directly in Telegram and set their expiry."""
     clean_name = product_name.replace('دریافت مجدد ', '')
-
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT pl.link FROM product_links pl JOIN products p ON pl.product_id = p.id WHERE p.name ILIKE %s ORDER BY pl.id", (f"%{clean_name}%",))
+            cur.execute("SELECT pl.link FROM product_links pl JOIN products p ON pl.product_id=p.id WHERE p.name ILIKE %s ORDER BY pl.id", (f"%{clean_name}%",))
             links = [r['link'] for r in cur.fetchall()]
+            if not links:
+                log.warning('No delivery links for order %s (%s)', order_id, clean_name)
+                try:
+                    await context.bot.send_message(uid, f'❌ لینک‌های دانلود {clean_name} فعلاً در دسترس نیست. لطفاً با پشتیبانی تماس بگیرید.')
+                except TelegramError:
+                    pass
+                return
+            cur.execute("UPDATE orders SET status='delivered', delivery_sent=true, updated_at=now(), link_expires_at=now() + interval '5 days' WHERE id=%s AND status IN ('approved','delivered') AND delivery_sent=false RETURNING id", (order_id,))
+            if not cur.fetchone():
+                log.warning('Order %s already delivered or unavailable', order_id)
+                try:
+                    await context.bot.send_message(uid, '⚠️ لینک‌های این سفارش قبلاً ارسال شده است. برای دریافت مجدد از «🔄 دریافت مجدد لینک» استفاده کنید.')
+                except TelegramError:
+                    pass
+                return
 
-    if not links:
+    header = (f'🎉 خرید شما با موفقیت انجام شد!\nسفارش: #{order_id}\nمحصول: {clean_name}\n\n'
+              '⚠️ لینک‌ها تا ۵ روز قابل استفاده هستند.\n\n')
+    # Split long link lists to stay below Telegram's message limit.
+    chunks, current = [], header
+    for index, link in enumerate(links, 1):
+        line = f'{index}. {link}\n'
+        if len(current) + len(line) > 3800:
+            chunks.append(current)
+            current = f'ادامه لینک‌های {clean_name}:\n'
+        current += line
+    if current:
+        chunks.append(current)
+    for chunk in chunks:
         try:
-            await context.bot.send_message(uid, f'❌ متأسفانه لینک‌های دانلود برای {clean_name} در حال حاضر در دسترس نیست. لطفاً با پشتیبانی تماس بگیرید.')
-        except TelegramError:
-            pass
-        return
-
-    msg_header = f'🎉 محصول شما آماده تحویل است!\nسفارش: #{order_id}\nمحصول: {clean_name}\n\n'
-    msg_header += '⚠️ توجه: لینک‌های دانلود به صورت یک فایل متنی در پیام بعدی برای شما ارسال می‌شود.\n'
-    msg_header += f'🔒 رمز فایل: {LINKS_FILE_PASSWORD}\n'
-    msg_header += '⚠️ این لینک‌ها فقط تا ۵ روز آینده قابل استفاده هستند.'
-
-    try:
-        await context.bot.send_message(uid, msg_header)
-    except TelegramError as e:
-        log.error(f"Failed to send header to {uid}: {e}")
-        return
-
-    file_content = (
-        f"🔒 رمز فایل: {LINKS_FILE_PASSWORD}\n"
-        f"⚠️ این لینک‌ها فقط تا 5 روز آینده قابل استفاده هستند.\n"
-        f"━━━━━━━━━━━━━━━━━━\n\n"
-        + "\n".join(links)
-    )
-    file_io = io.BytesIO(file_content.encode('utf-8'))
-    file_io.name = f"RipperMods_Links.txt"
-
-    try:
-        await context.bot.send_document(
-            uid,
-            document=InputFile(file_io, filename=f"RipperMods_Links.txt"),
-            caption=(
-                f"✅ این فایل حاوی لینک‌های {clean_name} است.\n"
-                f"🔒 رمز فایل: {LINKS_FILE_PASSWORD}\n"
-                f"⚠️ اعتبار: ۵ روز"
-            )
-        )
-    except TelegramError as e:
-        log.error(f"Failed to send file to {uid}: {e}")
-        try:
-            await context.bot.send_message(uid, "❌ متأسفانه ارسال فایل لینک‌ها با خطا مواجه شد. لطفاً به پشتیبانی پیام دهید.")
-        except TelegramError:
-            pass
+            await context.bot.send_message(uid, chunk, disable_web_page_preview=True)
+        except TelegramError as exc:
+            log.error('Failed to send delivery links to %s: %s', uid, exc)
+            break
 
 
 async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
-    await q.answer()
     uid = q.from_user.id
+    if is_banned(uid):
+        return
+    if not is_admin(uid):
+        is_member, missing = await check_membership(context, uid)
+        if not is_member:
+            await q.answer('ابتدا در کانال‌ها عضو شوید', show_alert=True)
+            return
+    await q.answer()
     data = q.data or ''
     try:
+        if data == 'reseller:add_sale':
+            if not _is_reseller(uid):
+                await q.message.reply_text('دسترسی نمایندگی فعال نیست.')
+                return
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute('SELECT id,name,price FROM products WHERE active=true ORDER BY id')
+                    products = cur.fetchall()
+            kb = InlineKeyboardMarkup([[InlineKeyboardButton(f"{p['name']} — {int(p['price']):,} تومان", callback_data=f"reseller:sel_prod:{p['id']}")] for p in products])
+            await q.message.reply_text('محصول موردنظر برای ثبت فروش را انتخاب کنید:', reply_markup=kb)
+            return
+        if data.startswith('reseller:sel_prod:'):
+            if not _is_reseller(uid): return
+            pid = int(data.rsplit(':', 1)[1])
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute('SELECT id,name FROM products WHERE id=%s AND active=true', (pid,))
+                    product = cur.fetchone()
+            if not product:
+                await q.message.reply_text('محصول پیدا نشد.')
+                return
+            context.user_data.update(flow='reseller_sale_price', reseller_sale_pid=pid)
+            await q.message.reply_text(f"مرحله ۲ از ۴: قیمت نهایی فروش «{product['name']}» را به تومان وارد کنید.", reply_markup=back_kb())
+            return
+        if data == 'reseller:history':
+            if not _is_reseller(uid): return
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute('SELECT product_name,sale_amount,commission_amount,our_share_amount,customer,note,created_at FROM reseller_sales WHERE reseller_id=%s ORDER BY id DESC LIMIT 30', (uid,))
+                    sales = cur.fetchall()
+            if not sales:
+                await q.message.reply_text('هنوز فروشی ثبت نکرده‌اید.')
+                return
+            lines = ['📜 تاریخچه فروش نمایندگی:']
+            for sale in sales:
+                lines.append(f"\n📦 {sale['product_name']} — {int(sale['sale_amount']):,} تومان\n👤 مشتری: {sale['customer']}\n💰 سود: {int(sale['commission_amount']):,} | سهم RipperMods: {int(sale['our_share_amount']):,} تومان\n📅 {_fa_dt(sale['created_at'])}\n📝 {sale['note'] or '—'}")
+            await q.message.reply_text('\n'.join(lines))
+            return
+        if data.startswith('reseller_review:'):
+            if uid != SUPER_ADMIN:
+                await q.message.reply_text('⛔ فقط ادمین اصلی می‌تواند درخواست نمایندگی را بررسی کند.')
+                return
+            _, rid_text, decision = data.split(':', 2)
+            rid = int(rid_text)
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT * FROM reseller_requests WHERE id=%s FOR UPDATE", (rid,))
+                    request = cur.fetchone()
+                    if not request or request['status'] != 'pending':
+                        await q.message.reply_text('این درخواست قبلاً بررسی شده یا وجود ندارد.')
+                        return
+                    status = 'approved' if decision == 'approve' else 'rejected'
+                    cur.execute('UPDATE reseller_requests SET status=%s,reviewed_by=%s,reviewed_at=now() WHERE id=%s', (status,uid,rid))
+                    if status == 'approved':
+                        cur.execute('INSERT INTO resellers(user_id,request_id,approved_by) VALUES(%s,%s,%s) ON CONFLICT(user_id) DO UPDATE SET request_id=EXCLUDED.request_id,approved_by=EXCLUDED.approved_by,approved_at=now(),active=true', (request['user_id'],rid,uid))
+            try:
+                await context.bot.send_message(request['user_id'], '✅ درخواست نمایندگی شما تایید شد. از منوی «🏪 پنل نمایندگی» وارد پنل شوید.' if decision == 'approve' else '❌ درخواست نمایندگی شما رد شد. برای اطلاعات بیشتر با پشتیبانی تماس بگیرید.')
+            except TelegramError:
+                pass
+            await q.message.reply_text('نتیجه بررسی درخواست ثبت شد.')
+            return
+
         if data == 'join_lottery':
             with db() as conn:
                 with conn.cursor() as cur:
@@ -1636,6 +1785,10 @@ async def _notify_super_for_redownload(context, uid, order_id, product_name, amo
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.effective_message
     u = update.effective_user
+    if not u or is_banned(u.id):
+        return
+    if not await require_channel_membership(update, context, u.id):
+        return
     text = (msg.text or '').strip()
     if text in ('❌ لغو', '⬅️ بازگشت', '🔄 اتصال مجدد / شروع مجدد'):
         context.user_data.clear()
@@ -1666,7 +1819,74 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.reply_text('پنل مدیریت:', reply_markup=admin_kb())
         return
 
+    # --- Reseller application and sales flows ---
+    reseller_fields = {
+        'reseller_full_name': ('full_name', 'مرحله ۲ از ۷: شماره موبایل خود را وارد کنید.', 'reseller_phone'),
+        'reseller_phone': ('phone', 'مرحله ۳ از ۷: آیدی تلگرام خود را وارد کنید (مثلاً @username).', 'reseller_telegram_id'),
+        'reseller_telegram_id': ('telegram_id_text', 'مرحله ۴ از ۷: نام فروشگاه خود را وارد کنید.', 'reseller_shop_name'),
+        'reseller_shop_name': ('shop_name', 'مرحله ۵ از ۷: آدرس فروشگاه را وارد کنید.', 'reseller_shop_address'),
+        'reseller_shop_address': ('shop_address', 'مرحله ۶ از ۷: تلفن فروشگاه را وارد کنید.', 'reseller_shop_phone'),
+        'reseller_shop_phone': ('shop_phone', 'مرحله ۷ از ۷: توضیحات تکمیلی را وارد کنید.', 'reseller_description'),
+    }
+    if flow in reseller_fields:
+        key, prompt, next_flow = reseller_fields[flow]
+        form = context.user_data.setdefault('reseller_form', {})
+        form[key] = text
+        context.user_data['flow'] = next_flow
+        await msg.reply_text(prompt, reply_markup=back_kb())
+        return
+    if flow == 'reseller_description':
+        form = context.user_data.setdefault('reseller_form', {})
+        form['description'] = text
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("INSERT INTO reseller_requests(user_id,full_name,phone,telegram_id_text,shop_name,shop_address,shop_phone,description) VALUES(%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id", (u.id, form['full_name'], form['phone'], form['telegram_id_text'], form['shop_name'], form['shop_address'], form['shop_phone'], form['description']))
+                rid = cur.fetchone()['id']
+        context.user_data.clear()
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton('✅ تایید', callback_data=f'reseller_review:{rid}:approve'), InlineKeyboardButton('❌ رد', callback_data=f'reseller_review:{rid}:reject')]])
+        admin_text = (f'🏪 درخواست نمایندگی جدید #{rid}\n\nنام: {form["full_name"]}\nموبایل: {form["phone"]}\nآیدی تلگرام: {form["telegram_id_text"]}\nنام فروشگاه: {form["shop_name"]}\nآدرس: {form["shop_address"]}\nتلفن فروشگاه: {form["shop_phone"]}\nتوضیحات: {form["description"]}\n\nآیدی عددی: {u.id}')
+        try:
+            await context.bot.send_message(SUPER_ADMIN, admin_text, reply_markup=kb)
+        except TelegramError:
+            log.exception('Could not notify SUPER_ADMIN about reseller request %s', rid)
+        await msg.reply_text('✅ درخواست نمایندگی شما ثبت شد و برای بررسی ارسال گردید.', reply_markup=main_keyboard())
+        return
+    if flow == 'reseller_sale_price':
+        amount = Decimal(text.replace(',', '').replace('٬', ''))
+        if amount <= 0:
+            raise InvalidOperation()
+        context.user_data['reseller_sale_amount'] = amount
+        context.user_data['flow'] = 'reseller_sale_customer'
+        await msg.reply_text('مرحله ۳ از ۴: نام یا راه ارتباطی مشتری را وارد کنید.', reply_markup=back_kb())
+        return
+    if flow == 'reseller_sale_customer':
+        context.user_data['reseller_sale_customer'] = text
+        context.user_data['flow'] = 'reseller_sale_note'
+        await msg.reply_text('مرحله ۴ از ۴: توضیحات فروش را وارد کنید (در صورت نداشتن توضیح، «-» بفرستید).', reply_markup=back_kb())
+        return
+    if flow == 'reseller_sale_note':
+        pid = context.user_data['reseller_sale_pid']
+        amount = context.user_data['reseller_sale_amount']
+        customer = context.user_data['reseller_sale_customer']
+        note = '' if text == '-' else text
+        commission = (amount * RESELLER_COMMISSION_PERCENT / Decimal(100)).quantize(Decimal('0.01'))
+        our_share = (amount * OUR_SHARE_PERCENT / Decimal(100)).quantize(Decimal('0.01'))
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT name FROM products WHERE id=%s', (pid,))
+                prod = cur.fetchone()
+                if not prod:
+                    await msg.reply_text('محصول پیدا نشد. دوباره تلاش کنید.')
+                    context.user_data.clear()
+                    return
+                cur.execute('INSERT INTO reseller_sales(reseller_id,product_id,product_name,sale_amount,commission_amount,our_share_amount,customer,note) VALUES(%s,%s,%s,%s,%s,%s,%s,%s)', (u.id,pid,prod['name'],amount,commission,our_share,customer,note))
+        context.user_data.clear()
+        await msg.reply_text(f'✅ فروش ثبت شد.\n💰 مبلغ فروش: {int(amount):,} تومان\nسود شما (۲۵٪): {int(commission):,} تومان\nسهم RipperMods (۷۵٪): {int(our_share):,} تومان', reply_markup=main_keyboard())
+        return
+
     # --- Normal Flows ---
+    if text == '🏪 پنل نمایندگی':
+        await reseller_menu(update, context); return
     if text == '🎁 قرعه‌کشی افتتاحیه':
         await start_lottery(update, context)
         return
