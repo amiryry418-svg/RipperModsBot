@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block title %}{{ product.name }} | RipperMods{% endblock %}
+
+{% block content %}
+<section class="wrap mt-4 mb-4">
+    <div class="grid-2">
+        
+        <!-- ستون سمت راست: گالری و ویدیو -->
+        <div>
+            <div class="card" style="padding: 15px; margin-bottom: 20px;">
+                <!-- عکس اصلی -->
+                <div style="position: relative; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); margin-bottom: 15px;">
+                    <img id="mainImage" src="{{ images[0].image_url if images else 'https://s31.uupload.ir/files/rippermodsgtavv100/Amir/4/./IMG_20261101_145958_359.jpg' }}" alt="{{ product.name }}" style="width: 100%; height: auto; display: block;">
+                </div>
+                
+                <!-- گالری عکس‌های کوچک (اگه بیشتر از ۱ عکس باشه) -->
+                {% if images|length > 1 %}
+                <div class="flex gap-2" style="justify-content: center; flex-wrap: wrap;">
+                    {% for img in images %}
+                    <img src="{{ img.image_url }}" onclick="changeImage('{{ img.image_url }}')" style="width: 70px; height: 70px; object-fit: cover; border-radius: 8px; border: 2px solid transparent; cursor: pointer; opacity: 0.6; transition: 0.2s;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.6'">
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- ویدیو (فقط برای محصولاتی که ویدیو دارن) -->
+            {% if video_url %}
+            <div class="card" style="padding: 15px; margin-bottom: 20px;">
+                <h3 style="margin-bottom: 15px;"><i class="fa-solid fa-video" style="color: var(--red);"></i> ویدیو معرفی</h3>
+                <div style="border-radius: 12px; overflow: hidden; border: 1px solid var(--line);">
+                    <video controls style="width: 100%; display: block;" poster="{{ images[0].image_url if images else '' }}">
+                        <source src="{{ video_url }}" type="video/mp4">
+                        مرورگر شما از پخش ویدیو پشتیبانی نمی‌کند.
+                    </video>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- ستون سمت چپ: مشخصات و خرید -->
+        <div>
+            <div class="card">
+                <h1 style="font-size: 28px; color: var(--red); margin-bottom: 15px;"><i class="fa-solid fa-fire"></i> {{ product.name }}</h1>
+                
+                <div style="background: #0d0e12; padding: 20px; border-radius: 12px; border: 1px solid var(--line); margin-bottom: 20px;">
+                    <div class="product-desc" style="font-size: 14px; line-height: 2; color: #ccc;">
+                        {{ product.description }}
+                    </div>
+                </div>
+
+                <!-- دکمه‌های خرید و دانلود -->
+                <div style="background: #1a1012; border: 1px solid var(--red); padding: 20px; border-radius: 15px;">
+                    <div class="flex justify-between items-center" style="margin-bottom: 20px; border-bottom: 1px solid var(--line); padding-bottom: 15px;">
+                        <span style="font-size: 15px; color: var(--muted);">قیمت محصول:</span>
+                        <span style="font-size: 26px; font-weight: 900;">{{ "{:,}".format(product.price|int) }} <span style="font-size: 14px; color: var(--red);">تومان</span></span>
+                    </div>
+
+                    {% if has_bought %}
+                        <div class="alert alert-success text-center">
+                            <i class="fa-solid fa-circle-check"></i> شما این محصول را قبلاً خریداری کرده‌اید.
+                        </div>
+                        <a href="/dashboard" class="btn btn-primary btn-block mt-2"><i class="fa-solid fa-download"></i> مشاهده لینک‌ها در پنل کاربری</a>
+                    {% else %}
+                        <div class="alert alert-warning text-center" style="font-size: 12px; background: #ffc44d1a; color: #ffc44d; border: 1px solid #ffc44d44;">
+                            <i class="fa-solid fa-triangle-exclamation"></i> توجه: لینک‌های دانلود تنها تا ۵ روز پس از خرید معتبر هستند.
+                        </div>
+                        
+                        <a href="https://t.me/RippermodsBot" target="_blank" class="btn btn-primary btn-block mt-2"><i class="fa-brands fa-telegram"></i> خرید از طریق ربات تلگرام</a>
+                        <p style="font-size: 11px; color: var(--muted); text-align: center; margin-top: 10px;">پس از خرید، از طریق پنل کاربری به فایل‌ها دسترسی خواهید داشت.</p>
+                    {% endif %}
+                </div>
+
+                <!-- دکمه دانلود بیس -->
+                <div class="mt-4 text-center">
+                    <p style="font-size: 12px; color: var(--muted); margin-bottom: 10px;">برای نصب این پک، ابتدا به نسخه بیس بازی نیاز دارید:</p>
+                    <a href="{{ base_link }}" target="_blank" class="btn btn-secondary btn-block"><i class="fa-solid fa-hard-drive"></i> دانلود نسخه بیس بازی</a>
+                </div>
+
+            </div>
+        </div>
+
+    </div>
+</section>
+
+<!-- اسکریپت برای تغییر عکس گالری -->
+<script>
+    function changeImage(src) {
+        document.getElementById('mainImage').src = src;
+    }
+</script>
+{% endblock %}
