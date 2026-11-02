@@ -1,13 +1,15 @@
 # web.py
 import os
 import secrets
-import requests
+import random
+import base64
 from datetime import datetime
 from decimal import Decimal
 from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 import psycopg2
 from psycopg2.extras import RealDictCursor
+import requests
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'rippermods-super-secret-key')
@@ -23,9 +25,11 @@ SITE_API_KEY = os.environ.get('SITE_API_KEY', 'my-super-secret-api-key')
 REDOWNLOAD_PRICE = Decimal('150000')
 BASE_LINK = "https://dl2.megadl.click/PS4-Hacked/GTAV/CUSA00419/BASE/"
 
+CARD_NUMBER = os.environ.get('CARD_NUMBER', '5022291544593963')
+CARD_HOLDER = os.environ.get('CARD_HOLDER', 'ریبعی نژاد')
+
 # --- کد تست برای ورود ادمین ---
-TEST_ADMIN_PHONE = "09120000000"
-TEST_ADMIN_PASS = "Admin123"
+TEST_ADMIN_PHONE = "09120000000" # در ورود ادمین استفاده می‌شود
 
 def get_db():
     kwargs = dict(connect_timeout=8, cursor_factory=RealDictCursor)
@@ -36,6 +40,7 @@ def get_db():
 def init_db():
     with get_db() as conn:
         with conn.cursor() as cur:
+            # جدول عکس‌های محصولات
             cur.execute("""CREATE TABLE IF NOT EXISTS product_images (
                 id BIGSERIAL PRIMARY KEY,
                 product_id BIGINT REFERENCES products(id) ON DELETE CASCADE,
@@ -43,6 +48,7 @@ def init_db():
                 is_cover BOOLEAN DEFAULT FALSE,
                 created_at TIMESTAMPTZ DEFAULT now()
             )""")
+            # جدول تیکت‌های سایت
             cur.execute("""CREATE TABLE IF NOT EXISTS site_tickets (
                 id BIGSERIAL PRIMARY KEY,
                 user_id BIGINT NOT NULL,
@@ -52,6 +58,7 @@ def init_db():
                 created_at TIMESTAMPTZ DEFAULT now(),
                 replied_at TIMESTAMPTZ
             )""")
+            # جدول کاربران سایت
             cur.execute("""CREATE TABLE IF NOT EXISTS site_users (
                 id BIGSERIAL PRIMARY KEY,
                 telegram_id BIGINT UNIQUE,
@@ -60,8 +67,10 @@ def init_db():
                 username TEXT,
                 created_at TIMESTAMPTZ DEFAULT now()
             )""")
+            # اضافه کردن ستون عکس رسید به جدول سفارش‌ها
+            cur.execute("""ALTER TABLE orders ADD COLUMN IF NOT EXISTS receipt_image_base64 TEXT""")
             
-            # اضافه کردن کاور پیش‌فرض
+            # اضافه کردن کاور پیش‌فرض برای محصولات (اگر خالی بود)
             cur.execute("SELECT id, name FROM products")
             prods = cur.fetchall()
             for p in prods:
@@ -256,6 +265,88 @@ def new_ticket():
         flash('تیکت شما ثبت شد.', 'success')
     return redirect(url_for('dashboard'))
 
+# --- فرآیند خرید و پرداخت ---
+@app.route('/buy/<int:pid>', methods=['POST'])
+def buy_product(pid):
+    if 'site_user_id' not in session:
+        return redirect(url_for('login'))
+        
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT telegram_id FROM site_users WHERE id=%s", (session['site_user_id'],))
+            user = cur.fetchone()
+            tg_id = user['telegram_id']
+            
+            # چک کن کاربر قبلا این محصول رو نخریده باشه
+            cur.execute("SELECT 1 FROM orders WHERE user_id=%s AND product_id=%s AND status IN ('approved','delivered')", (tg_id, pid))
+            if cur.fetchone():
+                flash('شما قبلاً این محصول را خریداری کرده‌اید.', 'error')
+                return redirect(url_for('product_detail', pid=pid))
+            
+            cur.execute("SELECT * FROM products WHERE id=%s", (pid,))
+            product = cur.fetchone()
+            
+            # ساخت کد پیگیری و ثبت سفارش اولیه
+            tc = f"RM-{random.randint(10000, 99999)}"
+            amount = product['price']
+            
+            cur.execute(
+                "INSERT INTO orders(user_id, product_id, product_name, amount, payment_method, status, tracking_code) "
+                "VALUES(%s, %s, %s, %s, 'card', 'pending', %s) RETURNING id",
+                (tg_id, pid, product['name'], amount, tc)
+            )
+            order_id = cur.fetchone()['id']
+            
+    return redirect(url_for('payment_page', order_id=order_id))
+
+@app.route('/payment/<int:order_id>')
+def payment_page(order_id):
+    if 'site_user_id' not in session:
+        return redirect(url_for('login'))
+    
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM orders WHERE id=%s AND user_id=(SELECT telegram_id FROM site_users WHERE id=%s)", (order_id, session['site_user_id']))
+            order = cur.fetchone()
+            if not order:
+                return redirect(url_for('dashboard'))
+                
+    return render_template('payment.html', order_id=order['id'], tracking_code=order['tracking_code'], amount=order['amount'], card=CARD_NUMBER, holder=CARD_HOLDER, product_name=order['product_name'])
+
+@app.route('/upload_receipt/<int:order_id>', methods=['POST'])
+def upload_receipt(order_id):
+    if 'site_user_id' not in session:
+        return redirect(url_for('login'))
+        
+    if 'receipt' not in request.files:
+        flash('لطفاً یک عکس انتخاب کنید.', 'error')
+        return redirect(url_for('payment_page', order_id=order_id))
+        
+    file = request.files['receipt']
+    if file.filename == '':
+        flash('فایلی انتخاب نشده است.', 'error')
+        return redirect(url_for('payment_page', order_id=order_id))
+
+    # تبدیل عکس به Base64 برای ذخیره در دیتابیس
+    try:
+        img_data = file.read()
+        if len(img_data) > 5 * 1024 * 1024: # حداکثر ۵ مگابایت
+            flash('حجم عکس نباید بیشتر از ۵ مگابایت باشد.', 'error')
+            return redirect(url_for('payment_page', order_id=order_id))
+            
+        b64_string = base64.b64encode(img_data).decode('utf-8')
+        
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE orders SET receipt_image_base64=%s WHERE id=%s AND status='pending'", (b64_string, order_id))
+        
+        flash('رسید شما با موفقیت دریافت شد و در انتظار تایید ادمین است.', 'success')
+        return redirect(url_for('dashboard'))
+    except Exception as e:
+        print(f"Upload Error: {e}")
+        flash('خطا در ذخیره عکس. لطفاً دوباره تلاش کنید.', 'error')
+        return redirect(url_for('payment_page', order_id=order_id))
+
 # --- پنل ادمین ---
 def admin_required(f):
     @wraps(f)
@@ -278,8 +369,15 @@ def admin_login():
 def admin_panel():
     with get_db() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT * FROM orders ORDER BY created_at DESC LIMIT 50")
+            # گرفتن سفارش‌ها همراه با اطلاعات کاربر
+            cur.execute("""
+                SELECT o.*, u.full_name, u.phone 
+                FROM orders o 
+                LEFT JOIN site_users u ON o.user_id = u.telegram_id 
+                ORDER BY o.created_at DESC LIMIT 50
+            """)
             orders = cur.fetchall()
+            
             cur.execute("SELECT * FROM site_tickets WHERE status='open' ORDER BY created_at DESC")
             tickets = cur.fetchall()
             cur.execute("SELECT * FROM products")
