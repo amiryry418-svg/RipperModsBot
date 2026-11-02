@@ -29,10 +29,10 @@
                     <thead>
                         <tr>
                             <th>کد پیگیری</th>
-                            <th>کاربر</th>
-                            <th>محصول</th>
-                            <th>مبلغ</th>
-                            <th>وضعیت</th>
+                            <th>مشخصات کاربر</th>
+                            <th>محصول و مبلغ</th>
+                            <th>زمان</th>
+                            <th>رسید</th>
                             <th>عملیات</th>
                         </tr>
                     </thead>
@@ -40,16 +40,24 @@
                         {% for o in orders %}
                         <tr>
                             <td><span style="font-family: monospace;">{{ o.tracking_code or o.id }}</span></td>
-                            <td>{{ o.user_id }}</td>
-                            <td>{{ o.product_name }}</td>
-                            <td>{{ "{:,}".format(o.amount|int) }}</td>
                             <td>
-                                {% if o.status == 'pending' %}
-                                    <span class="badge badge-warning">در انتظار</span>
-                                {% elif o.status == 'approved' or o.status == 'delivered' %}
-                                    <span class="badge badge-success">تایید شده</span>
+                                <strong>{{ o.full_name or 'ناشناس' }}</strong><br>
+                                <small style="color: var(--muted);">{{ o.phone or '—' }}</small><br>
+                                <small style="color: var(--muted);">ID: {{ o.user_id }}</small>
+                            </td>
+                            <td>
+                                {{ o.product_name }}<br>
+                                <strong style="color: var(--red);">{{ "{:,}".format(o.amount|int) }} تومان</strong>
+                            </td>
+                            <td style="font-size: 11px;">{{ o.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                            <td>
+                                {% if o.receipt_image_base64 %}
+                                    <button type="button" class="btn btn-secondary" onclick="showReceipt('{{ o.id }}')" style="padding: 5px 10px; min-height: 30px; font-size: 11px;"><i class="fa-solid fa-image"></i> مشاهده</button>
+                                    <div id="img-{{ o.id }}" style="display: none;">
+                                        <img src="data:image/jpeg;base64,{{ o.receipt_image_base64 }}">
+                                    </div>
                                 {% else %}
-                                    <span class="badge" style="background: #ef44441a; color: #f87171;">{{ o.status }}</span>
+                                    <span style="color: var(--muted); font-size: 11px;">بدون رسید</span>
                                 {% endif %}
                             </td>
                             <td>
@@ -63,7 +71,7 @@
                                     </form>
                                 </div>
                                 {% else %}
-                                    <span style="color: var(--muted);">—</span>
+                                    <span class="badge {% if o.status == 'approved' or o.status == 'delivered' %}badge-success{% else %}badge-warning{% endif %}">{{ o.status }}</span>
                                 {% endif %}
                             </td>
                         </tr>
@@ -135,4 +143,23 @@
         </div>
     </div>
 </section>
+
+<!-- مدال نمایش عکس -->
+<div id="receiptModal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 100; justify-content: center; align-items: center; padding: 20px;">
+    <div style="max-width: 500px; width: 100%; background: #111; padding: 15px; border-radius: 15px; position: relative;">
+        <button onclick="closeReceipt()" style="position: absolute; top: -15px; left: -15px; background: var(--red); border: none; color: white; width: 35px; height: 35px; border-radius: 50%; cursor: pointer; font-size: 20px;">×</button>
+        <img id="modalImage" src="" style="width: 100%; border-radius: 10px;">
+    </div>
+</div>
+
+<script>
+    function showReceipt(orderId) {
+        const imgSrc = document.querySelector(`#img-${orderId} img`).src;
+        document.getElementById('modalImage').src = imgSrc;
+        document.getElementById('receiptModal').style.display = 'flex';
+    }
+    function closeReceipt() {
+        document.getElementById('receiptModal').style.display = 'none';
+    }
+</script>
 {% endblock %}
