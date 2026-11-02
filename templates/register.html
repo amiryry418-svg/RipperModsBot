@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}ثبت‌نام | RipperMods{% endblock %}
+
+{% block content %}
+<section class="wrap mt-4 mb-4" style="max-width: 500px;">
+    <div class="card">
+        <div class="text-center mb-4">
+            <h2>ثبت‌نام در RipperMods</h2>
+            <p style="color: var(--muted); font-size: 13px; margin-top: 5px;">اطلاعات خود را وارد کنید تا کد تایید برای شما ارسال شود</p>
+        </div>
+
+        <form method="POST" action="/register">
+            <div class="form-group">
+                <label for="full_name">نام و نام خانوادگی</label>
+                <input type="text" id="full_name" name="full_name" class="form-control" placeholder="مثلاً: علی رضایی" required autofocus>
+            </div>
+
+            <div class="form-group">
+                <label for="phone">شماره تماس</label>
+                <input type="tel" id="phone" name="phone" class="form-control" placeholder="مثلاً: 09121234567" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="telegram_id">آیدی عددی تلگرام</label>
+                <input type="text" id="telegram_id" name="telegram_id" class="form-control" placeholder="برای دریافت کد، آیدی عددی خود را وارد کنید" required>
+                <small style="color: var(--muted); font-size: 11px; margin-top: 5px; display: block;">برای پیدا کردن آیدی عددی، به ربات <a href="https://t.me/userinfobot" target="_blank" style="color: var(--red);">@userinfobot</a> پیام دهید.</small>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-block mt-4"><i class="fa-solid fa-user-plus"></i> ثبت‌نام و دریافت کد</button>
+        </form>
+
+        <div class="text-center mt-4" style="border-top: 1px solid var(--line); padding-top: 20px;">
+            <p style="font-size: 13px; color: var(--muted);">قبلاً ثبت‌نام کرده‌اید؟ <a href="/login" style="color: var(--red); font-weight: bold;">وارد شوید</a></p>
+        </div>
+    </div>
+</section>
+{% endblock %}
