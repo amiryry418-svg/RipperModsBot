@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """RipperMods Persian Telegram shop. PostgreSQL-backed, deployable on Render."""
 from __future__ import annotations
-import os, logging, threading, time, asyncio, io, re, random, requests, secrets
+import os, logging, threading, time, asyncio, io, re, random, requests, secrets, hmac
 from contextlib import contextmanager
 from decimal import Decimal, InvalidOperation
 from typing import Optional
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, InputFile
 from telegram.error import TelegramError
 from telegram.ext import (Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters)
@@ -21,6 +21,7 @@ except ImportError:
 logging.basicConfig(level=os.getenv('LOG_LEVEL','INFO'), format='%(asctime)s %(levelname)s %(name)s: %(message)s')
 log = logging.getLogger('rippermods')
 app = Flask(__name__)
+SITE_API_KEY = os.getenv('SITE_API_KEY', '').strip()
 
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 DATABASE_URL = os.environ.get('DATABASE_URL')
@@ -148,6 +149,87 @@ def health():
         return jsonify(status='ok', database='connected'), 200
     except Exception:
         return jsonify(status='degraded', database='unavailable'), 503
+
+
+@app.post('/api/send_login_code')
+def api_send_login_code():
+    # This endpoint is intended for the RipperMods website backend only.
+    supplied_key = request.headers.get('X-API-Key', '')
+    if not SITE_API_KEY or not supplied_key or not hmac.compare_digest(supplied_key, SITE_API_KEY):
+        return jsonify(status='unauthorized'), 401
+
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify(status='invalid_request'), 400
+    telegram_id = payload.get('telegram_id')
+    try:
+        telegram_id = int(telegram_id)
+        if telegram_id <= 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        return jsonify(status='invalid_request'), 400
+
+    if not BOT_TOKEN:
+        log.error('SITE_API_KEY is configured but BOT_TOKEN is missing; cannot send login code.')
+        return jsonify(status='unavailable'), 503
+
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT 1 FROM users WHERE telegram_id=%s', (telegram_id,))
+                if not cur.fetchone():
+                    return jsonify(status='not_found'), 404
+
+                # Generate a unique six-digit code and invalidate previous unused codes.
+                code = None
+                for _ in range(20):
+                    candidate = f"{secrets.randbelow(900000) + 100000}"
+                    cur.execute('SELECT 1 FROM link_codes WHERE code=%s', (candidate,))
+                    if not cur.fetchone():
+                        code = candidate
+                        break
+                if code is None:
+                    log.error('Could not generate a unique login code.')
+                    return jsonify(status='unavailable'), 503
+
+                cur.execute('DELETE FROM link_codes WHERE telegram_id=%s AND used=false', (telegram_id,))
+                cur.execute(
+                    "INSERT INTO link_codes(code, telegram_id, expires_at) VALUES(%s,%s, now() + interval '2 minutes')",
+                    (code, telegram_id)
+                )
+
+        # Send only after the database transaction has committed.
+        try:
+            telegram_response = requests.post(
+                f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage',
+                json={
+                    'chat_id': telegram_id,
+                    'text': f'🔐 کد ورود به سایت RipperMods: {code}\n\n⏳ این کد فقط ۲ دقیقه اعتبار دارد.'
+                },
+                timeout=12
+            )
+            try:
+                telegram_result = telegram_response.json()
+            except ValueError:
+                telegram_result = {}
+
+            if telegram_response.ok and telegram_result.get('ok') is True:
+                return jsonify(status='ok'), 200
+
+            description = str(telegram_result.get('description', '')).lower()
+            if telegram_response.status_code == 403 and 'blocked' in description:
+                return jsonify(status='blocked'), 200
+
+            log.warning('Telegram sendMessage failed for login-code request (HTTP %s): %s',
+                        telegram_response.status_code, description or 'no description')
+            return jsonify(status='send_failed'), 502
+        except requests.RequestException:
+            log.exception('Telegram API request failed while sending website login code.')
+            return jsonify(status='send_failed'), 502
+
+    except Exception:
+        log.exception('Failed to create/send website login code.')
+        return jsonify(status='unavailable'), 503
 
 
 @contextmanager
@@ -585,8 +667,12 @@ async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute("DELETE FROM link_codes WHERE telegram_id=%s AND used=false", (u.id,))
-            cur.execute("INSERT INTO link_codes(code, telegram_id, expires_at) VALUES(%s,%s, now() + interval '10 minutes')", (code, u.id))
-    await update.effective_message.reply_text(f"🔗 کد اتصال: `{code}`\n۱۰ دقیقه اعتبار", parse_mode='Markdown')
+            cur.execute("INSERT INTO link_codes(code, telegram_id, expires_at) VALUES(%s,%s, now() + interval '2 minutes')", (code, u.id))
+    link_text = (
+        f"🔗 کد اتصال به سایت RipperMods: <code>{code}</code>\n\n"
+        "⏳ توجه: این کد فقط <b>۲ دقیقه</b> اعتبار دارد. پس از این زمان، باید دوباره درخواست دهید."
+    )
+    await update.effective_message.reply_text(link_text, parse_mode='HTML')
 
 
 async def start_lottery(update: Update, context: ContextTypes.DEFAULT_TYPE):
