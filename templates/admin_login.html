@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}ورود ادمین | RipperMods{% endblock %}
+
+{% block content %}
+<section class="wrap mt-4 mb-4" style="max-width: 400px;">
+    <div class="card">
+        <div class="text-center mb-4">
+            <i class="fa-solid fa-user-shield" style="font-size: 50px; color: var(--red); margin-bottom: 15px;"></i>
+            <h2>پنل مدیریت</h2>
+            <p style="color: var(--muted); font-size: 13px; margin-top: 5px;">ورود اختصاصی ادمین</p>
+        </div>
+
+        <form method="POST" action="/admin/login">
+            <div class="form-group">
+                <label for="username">نام کاربری</label>
+                <input type="text" id="username" name="username" class="form-control" placeholder="نام کاربری خود را وارد کنید" required autofocus>
+            </div>
+            
+            <div class="form-group">
+                <label for="password">رمز عبور</label>
+                <input type="password" id="password" name="password" class="form-control" placeholder="رمز عبور خود را وارد کنید" required>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-block mt-4"><i class="fa-solid fa-right-to-bracket"></i> ورود به پنل</button>
+        </form>
+    </div>
+</section>
+{% endblock %}
