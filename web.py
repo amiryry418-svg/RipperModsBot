@@ -29,7 +29,7 @@ CARD_NUMBER = os.environ.get('CARD_NUMBER', '5022291544593963')
 CARD_HOLDER = os.environ.get('CARD_HOLDER', 'ریبعی نژاد')
 
 # --- کد تست برای ورود ادمین ---
-TEST_ADMIN_PHONE = "09120000000" # در ورود ادمین استفاده می‌شود
+TEST_ADMIN_PHONE = "09120000000"
 
 def get_db():
     kwargs = dict(connect_timeout=8, cursor_factory=RealDictCursor)
@@ -439,6 +439,11 @@ def admin_update_product(pid):
     flash('محصول با موفقیت آپدیت شد.', 'success')
     return redirect(url_for('admin_panel'))
 
-if __name__ == '__main__':
+# این خطوط باعث می‌شوند جدول‌ها به محض بالا آمدن سرور (حتی با gunicorn) ساخته شوند
+try:
     init_db()
+except Exception as e:
+    print(f"Error initializing DB: {e}")
+
+if __name__ == '__main__':
     app.run(debug=True, port=5000)
