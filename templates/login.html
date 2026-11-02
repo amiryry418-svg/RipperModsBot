@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %}ورود | RipperMods{% endblock %}
+
+{% block content %}
+<section class="wrap mt-4 mb-4" style="max-width: 500px;">
+    <div class="card">
+        <div class="text-center mb-4">
+            <img src="{{ url_for('static', filename='logo.png') }}" alt="Logo" style="height: 80px; margin-bottom: 15px;">
+            <h2>ورود به حساب کاربری</h2>
+            <p class="sub" style="color: var(--muted); font-size: 13px; margin-top: 5px;">با آیدی تلگرام خود وارد شوید</p>
+        </div>
+
+        <form method="POST" action="/login">
+            <div class="form-group">
+                <label for="telegram_id">آیدی عددی یا یوزرنیم تلگرام</label>
+                <input type="text" id="telegram_id" name="telegram_id" class="form-control" placeholder="مثلاً: 123456789 یا @username" required autofocus>
+            </div>
+            
+            <div class="alert alert-warning" style="font-size: 12px; background: #ffc44d1a; color: #ffc44d; border: 1px solid #ffc44d44; margin-bottom: 20px;">
+                <i class="fa-solid fa-circle-info"></i> برای ورود، ابتدا باید ربات تلگرام ما را استارت کرده باشید.
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-block"><i class="fa-solid fa-paper-plane"></i> دریافت کد ورود</button>
+        </form>
+
+        <div class="text-center mt-4" style="border-top: 1px solid var(--line); padding-top: 20px;">
+            <p style="font-size: 13px; color: var(--muted);">حساب ندارید؟ <a href="/register" style="color: var(--red); font-weight: bold;">ثبت‌نام کنید</a></p>
+            <p style="font-size: 13px; color: var(--muted); margin-top: 10px;">هنوز ربات رو استارت نکردید؟ <a href="https://t.me/RippermodsBot" target="_blank" style="color: var(--red); font-weight: bold;">ورود به ربات <i class="fa-brands fa-telegram"></i></a></p>
+        </div>
+    </div>
+</section>
+{% endblock %}
