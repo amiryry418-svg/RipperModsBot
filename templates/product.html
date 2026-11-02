@@ -66,8 +66,9 @@
                             <i class="fa-solid fa-triangle-exclamation"></i> توجه: لینک‌های دانلود تنها تا ۵ روز پس از خرید معتبر هستند.
                         </div>
                         
-                        <a href="https://t.me/RippermodsBot" target="_blank" class="btn btn-primary btn-block mt-2"><i class="fa-brands fa-telegram"></i> خرید از طریق ربات تلگرام</a>
-                        <p style="font-size: 11px; color: var(--muted); text-align: center; margin-top: 10px;">پس از خرید، از طریق پنل کاربری به فایل‌ها دسترسی خواهید داشت.</p>
+                        <form method="POST" action="/buy/{{ product.id }}">
+                            <button type="submit" class="btn btn-primary btn-block mt-2"><i class="fa-solid fa-cart-shopping"></i> خرید محصول</button>
+                        </form>
                     {% endif %}
                 </div>
 
