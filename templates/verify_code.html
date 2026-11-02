@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}تایید کد | RipperMods{% endblock %}
+
+{% block content %}
+<section class="wrap mt-4 mb-4" style="max-width: 450px;">
+    <div class="card text-center">
+        <i class="fa-solid fa-shield-halved" style="font-size: 50px; color: var(--red); margin-bottom: 20px;"></i>
+        <h2>کد تایید را وارد کنید</h2>
+        <p style="color: var(--muted); font-size: 13px; margin: 10px 0 25px;">
+            ما یک کد ۶ رقمی به تلگرام شما ارسال کردیم. لطفاً آن را در کادر زیر وارد کنید.
+            <br><span style="color: #ffc44d; font-weight: bold; margin-top: 5px; display: inline-block;">(کد فقط ۲ دقیقه اعتبار دارد)</span>
+        </p>
+
+        <form method="POST" action="/verify_code">
+            <div class="form-group">
+                <input type="text" name="code" class="form-control text-center" style="font-size: 24px; letter-spacing: 5px; font-weight: bold; direction: ltr;" placeholder="------" maxlength="6" required autofocus>
+            </div>
+            
+            <button type="submit" class="btn btn-primary btn-block mt-4">تایید و ورود</button>
+        </form>
+
+        <div class="mt-4">
+            <a href="/login" style="font-size: 12px; color: var(--muted);">بازگشت به صفحه ورود</a>
+        </div>
+    </div>
+</section>
+{% endblock %}
