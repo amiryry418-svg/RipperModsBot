@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}RipperMods{% endblock %}</title>
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+    <!-- Header -->
+    <header class="topbar">
+        <div class="wrap nav">
+            <a class="brand" href="/">
+                <span class="brand-mark">R</span>
+                <span class="brand-name">RIPPER<span>MODS</span><small>CUSTOMER PORTAL</small></span>
+            </a>
+            <nav class="navlinks">
+                <a href="/#products">محصولات</a>
+                {% if session.get('site_user_id') %}
+                    <a href="/dashboard"><i class="fa-solid fa-user"></i> پنل کاربری</a>
+                    <a href="/logout" class="btn btn-secondary" style="padding: 8px 15px; min-height: 40px; font-size: 12px;">خروج</a>
+                {% elif session.get('is_admin') %}
+                    <a href="/admin/panel"><i class="fa-solid fa-shield-halved"></i> پنل ادمین</a>
+                    <a href="/logout" class="btn btn-secondary" style="padding: 8px 15px; min-height: 40px; font-size: 12px;">خروج</a>
+                {% else %}
+                    <a href="/login">ورود</a>
+                    <a href="/register" class="btn btn-primary" style="padding: 8px 15px; min-height: 40px; font-size: 13px;">ثبت‌نام</a>
+                {% endif %}
+            </nav>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="wrap mt-4">
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ category }}">{{ message }}</div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Footer -->
+    <footer>
+        <div class="wrap">
+            <p>© 2026 RipperMods — تمامی حقوق محفوظ است.</p>
+            <p style="margin-top: 10px;">
+                <a href="https://t.me/Rippermw" target="_blank" style="margin: 0 10px; color: var(--muted);"><i class="fa-brands fa-telegram"></i> پشتیبانی</a>
+                <a href="https://t.me/Rippermods" target="_blank" style="margin: 0 10px; color: var(--muted);"><i class="fa-brands fa-telegram"></i> کانال</a>
+            </p>
+        </div>
+    </footer>
+
+</body>
+</html>
