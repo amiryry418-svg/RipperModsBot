@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+
+{% block title %}مدیریت | RipperMods{% endblock %}
+
+{% block content %}
+<section class="wrap mt-4 mb-4">
+    
+    <div class="card mb-4" style="background: linear-gradient(145deg, #15161d, #101116); border-right: 4px solid var(--red);">
+        <div class="flex justify-between items-center" style="flex-wrap: wrap; gap: 15px;">
+            <div>
+                <h2 style="margin-bottom: 5px;"><i class="fa-solid fa-shield-halved"></i> پنل مدیریت RipperMods</h2>
+                <p style="color: var(--muted); font-size: 13px;">مدیریت سفارش‌ها، تیکت‌ها و محصولات</p>
+            </div>
+            <a href="/logout" class="btn btn-secondary" style="color: #f87171; border-color: #ef444444;"><i class="fa-solid fa-power-off"></i> خروج</a>
+        </div>
+    </div>
+
+    <!-- مدیریت سفارش‌ها -->
+    <div class="card mb-4">
+        <h3 style="margin-bottom: 20px; border-bottom: 1px solid var(--line); padding-bottom: 15px;">
+            <i class="fa-solid fa-boxes-stacked" style="color: var(--red);"></i> آخرین سفارش‌ها
+        </h3>
+        
+        {% if not orders %}
+            <p style="color: var(--muted);">سفارشی وجود ندارد.</p>
+        {% else %}
+            <div class="table-responsive">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>کد پیگیری</th>
+                            <th>کاربر</th>
+                            <th>محصول</th>
+                            <th>مبلغ</th>
+                            <th>وضعیت</th>
+                            <th>عملیات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for o in orders %}
+                        <tr>
+                            <td><span style="font-family: monospace;">{{ o.tracking_code or o.id }}</span></td>
+                            <td>{{ o.user_id }}</td>
+                            <td>{{ o.product_name }}</td>
+                            <td>{{ "{:,}".format(o.amount|int) }}</td>
+                            <td>
+                                {% if o.status == 'pending' %}
+                                    <span class="badge badge-warning">در انتظار</span>
+                                {% elif o.status == 'approved' or o.status == 'delivered' %}
+                                    <span class="badge badge-success">تایید شده</span>
+                                {% else %}
+                                    <span class="badge" style="background: #ef44441a; color: #f87171;">{{ o.status }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if o.status == 'pending' %}
+                                <div class="flex gap-2">
+                                    <form method="POST" action="/admin/order/{{ o.id }}/approve">
+                                        <button type="submit" class="btn btn-primary" style="padding: 5px 10px; min-height: 30px; font-size: 11px; background: var(--green); box-shadow: none;"><i class="fa-solid fa-check"></i> تایید</button>
+                                    </form>
+                                    <form method="POST" action="/admin/order/{{ o.id }}/reject">
+                                        <button type="submit" class="btn btn-primary" style="padding: 5px 10px; min-height: 30px; font-size: 11px; background: #ef4444; box-shadow: none;"><i class="fa-solid fa-xmark"></i> رد</button>
+                                    </form>
+                                </div>
+                                {% else %}
+                                    <span style="color: var(--muted);">—</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% endif %}
+    </div>
+
+    <div class="grid-2">
+        <!-- مدیریت تیکت‌ها -->
+        <div>
+            <div class="card" style="height: 100%;">
+                <h3 style="margin-bottom: 20px; border-bottom: 1px solid var(--line); padding-bottom: 15px;">
+                    <i class="fa-solid fa-envelope-open-text" style="color: var(--red);"></i> تیکت‌های باز
+                </h3>
+                
+                {% if not tickets %}
+                    <p style="color: var(--muted); font-size: 13px;">تیکت باز وجود ندارد.</p>
+                {% else %}
+                    {% for t in tickets %}
+                    <div style="background: #090a0e; padding: 15px; border-radius: 10px; margin-bottom: 15px; border: 1px solid var(--line);">
+                        <div style="font-size: 13px; margin-bottom: 10px;">{{ t.message }}</div>
+                        <form method="POST" action="/admin/ticket/{{ t.id }}/reply">
+                            <div class="form-group">
+                                <input type="text" name="reply" class="form-control" placeholder="پاسخ خود را بنویسید..." required style="height: 40px; font-size: 13px;">
+                            </div>
+                            <button type="submit" class="btn btn-primary" style="padding: 8px 15px; min-height: 35px; font-size: 12px;"><i class="fa-solid fa-reply"></i> ارسال پاسخ</button>
+                        </form>
+                    </div>
+                    {% endfor %}
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- مدیریت محصولات (قیمت، لینک، عکس) -->
+        <div>
+            <div class="card" style="height: 100%;">
+                <h3 style="margin-bottom: 20px; border-bottom: 1px solid var(--line); padding-bottom: 15px;">
+                    <i class="fa-solid fa-boxes-packing" style="color: var(--red);"></i> تنظیمات محصولات
+                </h3>
+                
+                {% for p in products %}
+                <div style="background: #090a0e; padding: 15px; border-radius: 10px; margin-bottom: 15px; border: 1px solid var(--line);">
+                    <h4 style="margin-bottom: 10px; font-size: 15px;">{{ p.name }}</h4>
+                    <form method="POST" action="/admin/product/{{ p.id }}/update">
+                        <div class="form-group">
+                            <label style="font-size: 11px;">قیمت (تومان)</label>
+                            <input type="number" name="price" class="form-control" value="{{ p.price|int }}" style="height: 40px; font-size: 13px;">
+                        </div>
+                        <div class="form-group">
+                            <label style="font-size: 11px;">لینک دانلود اصلی (فقط لینک اول تغییر می‌کند)</label>
+                            <input type="text" name="link" class="form-control" placeholder="https://..." style="height: 40px; font-size: 13px;">
+                        </div>
+                        <div class="form-group">
+                            <label style="font-size: 11px;">لینک عکس کاور جدید</label>
+                            <input type="text" name="cover" class="form-control" placeholder="https://... (اختیاری)" style="height: 40px; font-size: 13px;">
+                        </div>
+                        <div class="form-group">
+                            <label style="font-size: 11px;">لینک عکس‌های گالری (با کاما جدا کنید)</label>
+                            <input type="text" name="gallery" class="form-control" placeholder="link1, link2, link3" style="height: 40px; font-size: 13px;">
+                        </div>
+                        <button type="submit" class="btn btn-secondary" style="padding: 8px 15px; min-height: 35px; font-size: 12px; width: 100%;"><i class="fa-solid fa-floppy-disk"></i> ذخیره تغییرات</button>
+                    </form>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}
