@@ -73,6 +73,22 @@ def init_db():
             # برای دیتابیس‌هایی که از قبل ساخته شدن
             cur.execute("ALTER TABLE site_users ADD COLUMN IF NOT EXISTS email TEXT UNIQUE")
             
+            # --- اصلاح کلید خارجی جدول link_codes برای اتصال به کاربران سایت ---
+            cur.execute("""
+                DO $$ 
+                BEGIN 
+                    IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name='link_codes_telegram_id_fkey') THEN
+                        ALTER TABLE link_codes DROP CONSTRAINT link_codes_telegram_id_fkey;
+                    END IF;
+                END $$;
+            """)
+            cur.execute("""
+                ALTER TABLE link_codes 
+                ADD CONSTRAINT link_codes_telegram_id_fkey 
+                FOREIGN KEY (telegram_id) REFERENCES site_users(id) ON DELETE CASCADE;
+            """)
+            # ---------------------------------------------------------------------
+
             # اضافه کردن ستون عکس رسید به جدول سفارش‌ها
             cur.execute("""ALTER TABLE orders ADD COLUMN IF NOT EXISTS receipt_image_base64 TEXT""")
             
@@ -164,7 +180,6 @@ def register():
                     existing_user = cur.fetchone()
                     
                     if existing_user:
-                        # اگر کاربر وجود داشت، ارور میده و میفرسته صفحه ورود
                         flash('شما قبلاً با این ایمیل ثبت‌نام کرده‌اید. لطفاً وارد شوید.', 'error')
                         return redirect(url_for('login'))
                     
@@ -195,7 +210,8 @@ def register():
                 
         except Exception as e:
             print(f"Register Error: {e}")
-            flash('خطا در ثبت‌نام. ممکن است این شماره موبایل قبلاً استفاده شده باشد.', 'error')
+            # نمایش خطای دقیق برای دیباگ
+            flash(f'خطا در ثبت‌نام: {str(e)}', 'error')
             return redirect(url_for('register'))
 
     return render_template('register.html')
