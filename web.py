@@ -210,7 +210,6 @@ def register():
                 
         except Exception as e:
             print(f"Register Error: {e}")
-            # نمایش خطای دقیق برای دیباگ
             flash(f'خطا در ثبت‌نام: {str(e)}', 'error')
             return redirect(url_for('register'))
 
@@ -261,6 +260,7 @@ def login():
 
     return render_template('login.html')
 
+# --- تایید کد ---
 @app.route('/verify_code', methods=['GET', 'POST'])
 def verify_code():
     if 'temp_user_id' not in session:
@@ -275,7 +275,8 @@ def verify_code():
                 link = cur.fetchone()
                 
                 if link and link['telegram_id'] == session['temp_user_id']:
-                    cur.execute("UPDATE link_codes SET used=true WHERE id=%s", (link['id'],))
+                    # اصلاح: با کد آپدیت میکنیم نه id
+                    cur.execute("UPDATE link_codes SET used=true WHERE code=%s", (code,))
                     session['site_user_id'] = session.pop('temp_user_id')
                     return redirect(url_for('dashboard'))
                 
