@@ -156,36 +156,46 @@ def register():
             flash('لطفاً همه فیلدها را پر کنید.', 'error')
             return redirect(url_for('register'))
             
-        code = ''.join(random.choices(string.digits, k=6))
-        expires_at = datetime.now() + timedelta(minutes=2)
-        
         try:
             with get_db() as conn:
                 with conn.cursor() as cur:
-                    # ذخیره کاربر
+                    # ۱. چک میکنیم ببینیم این ایمیل قبلا ثبت‌نام کرده یا نه
+                    cur.execute("SELECT id FROM site_users WHERE email=%s", (email,))
+                    existing_user = cur.fetchone()
+                    
+                    if existing_user:
+                        # اگر کاربر وجود داشت، ارور میده و میفرسته صفحه ورود
+                        flash('شما قبلاً با این ایمیل ثبت‌نام کرده‌اید. لطفاً وارد شوید.', 'error')
+                        return redirect(url_for('login'))
+                    
+                    # ۲. اگر ایمیل جدید بود، ثبت‌نام رو انجام میدیم
                     cur.execute("""
                         INSERT INTO site_users (email, full_name, phone) 
                         VALUES (%s, %s, %s) 
-                        ON CONFLICT (email) DO UPDATE SET full_name=EXCLUDED.full_name, phone=EXCLUDED.phone
                         RETURNING id
                     """, (email, full_name, phone))
                     uid = cur.fetchone()['id']
                     
-                    # ذخیره کد
+                    # ۳. ساخت و ذخیره کد تایید
+                    code = ''.join(random.choices(string.digits, k=6))
+                    expires_at = datetime.now() + timedelta(minutes=2)
+                    
                     cur.execute("DELETE FROM link_codes WHERE telegram_id=%s", (uid,)) 
                     cur.execute("INSERT INTO link_codes (telegram_id, code, expires_at) VALUES (%s, %s, %s)", (uid, code, expires_at))
                     
                     session['temp_user_id'] = uid
             
+            # ۴. ارسال ایمیل
             if send_email_code(email, code):
                 flash('کد ورود به ایمیل شما ارسال شد.', 'success')
                 return redirect(url_for('verify_code'))
             else:
                 flash('خطا در ارسال ایمیل. لطفاً بعداً تلاش کنید.', 'error')
                 return redirect(url_for('register'))
+                
         except Exception as e:
             print(f"Register Error: {e}")
-            flash('خطا در ثبت‌نام. ممکن است این ایمیل یا شماره قبلا استفاده شده باشد.', 'error')
+            flash('خطا در ثبت‌نام. ممکن است این شماره موبایل قبلاً استفاده شده باشد.', 'error')
             return redirect(url_for('register'))
 
     return render_template('register.html')
