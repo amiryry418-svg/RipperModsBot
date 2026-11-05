@@ -87,6 +87,21 @@ def init_db():
                 ADD CONSTRAINT link_codes_telegram_id_fkey 
                 FOREIGN KEY (telegram_id) REFERENCES site_users(id) ON DELETE CASCADE;
             """)
+            
+            # --- اصلاح کلید خارجی جدول orders برای اتصال به کاربران سایت ---
+            cur.execute("""
+                DO $$ 
+                BEGIN 
+                    IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name='orders_user_id_fkey') THEN
+                        ALTER TABLE orders DROP CONSTRAINT orders_user_id_fkey;
+                    END IF;
+                END $$;
+            """)
+            cur.execute("""
+                ALTER TABLE orders 
+                ADD CONSTRAINT orders_user_id_fkey 
+                FOREIGN KEY (user_id) REFERENCES site_users(id) ON DELETE CASCADE;
+            """)
             # ---------------------------------------------------------------------
 
             # اضافه کردن ستون عکس رسید به جدول سفارش‌ها
@@ -275,7 +290,6 @@ def verify_code():
                 link = cur.fetchone()
                 
                 if link and link['telegram_id'] == session['temp_user_id']:
-                    # اصلاح: با کد آپدیت میکنیم نه id
                     cur.execute("UPDATE link_codes SET used=true WHERE code=%s", (code,))
                     session['site_user_id'] = session.pop('temp_user_id')
                     return redirect(url_for('dashboard'))
