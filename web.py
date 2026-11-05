@@ -3,13 +3,15 @@ import os
 import secrets
 import random
 import base64
-from datetime import datetime
+import string
+from datetime import datetime, timedelta
 from decimal import Decimal
 from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import requests
+import resend
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'rippermods-super-secret-key')
@@ -18,9 +20,8 @@ DATABASE_URL = os.environ.get('DATABASE_URL')
 ADMIN_USER = os.environ.get('ADMIN1_USER', 'Rippermw')
 ADMIN_PASS = os.environ.get('ADMIN1_PASSWORD', '123456')
 
-# آدرس سرویس ربات و کلید مخفی
-BOT_API_URL = os.environ.get('BOT_API_URL', 'https://your-bot-service.onrender.com')
-SITE_API_KEY = os.environ.get('SITE_API_KEY', 'my-super-secret-api-key')
+# تنظیم API Key برای Resend
+resend.api_key = os.environ.get('RESEND_API_KEY', 're_YOUR_API_KEY_HERE')
 
 REDOWNLOAD_PRICE = Decimal('150000')
 BASE_LINK = "https://dl2.megadl.click/PS4-Hacked/GTAV/CUSA00419/BASE/"
@@ -29,7 +30,7 @@ CARD_NUMBER = os.environ.get('CARD_NUMBER', '5022291544593963')
 CARD_HOLDER = os.environ.get('CARD_HOLDER', 'ریبعی نژاد')
 
 # --- کد تست برای ورود ادمین ---
-TEST_ADMIN_PHONE = "09120000000"
+TEST_ADMIN_EMAIL = "admin@rippermods.ir"
 
 def get_db():
     kwargs = dict(connect_timeout=8, cursor_factory=RealDictCursor)
@@ -58,15 +59,20 @@ def init_db():
                 created_at TIMESTAMPTZ DEFAULT now(),
                 replied_at TIMESTAMPTZ
             )""")
-            # جدول کاربران سایت
+            
+            # جدول کاربران سایت (با ایمیل)
             cur.execute("""CREATE TABLE IF NOT EXISTS site_users (
                 id BIGSERIAL PRIMARY KEY,
-                telegram_id BIGINT UNIQUE,
+                email TEXT UNIQUE NOT NULL,
                 full_name TEXT NOT NULL,
                 phone TEXT NOT NULL UNIQUE,
+                telegram_id BIGINT UNIQUE,
                 username TEXT,
                 created_at TIMESTAMPTZ DEFAULT now()
             )""")
+            # برای دیتابیس‌هایی که از قبل ساخته شدن
+            cur.execute("ALTER TABLE site_users ADD COLUMN IF NOT EXISTS email TEXT UNIQUE")
+            
             # اضافه کردن ستون عکس رسید به جدول سفارش‌ها
             cur.execute("""ALTER TABLE orders ADD COLUMN IF NOT EXISTS receipt_image_base64 TEXT""")
             
@@ -83,6 +89,26 @@ def init_db():
                         cur.execute("INSERT INTO product_images (product_id, image_url, is_cover) VALUES (%s, %s, true)", 
                                     (p['id'], 'https://s50.uupload.ir/files/rippermodsgtavv100/Amir/3/IMG_20261030_235715_878.jpg'))
     print("DB Initialized.")
+
+# تابع ارسال ایمیل با Resend
+def send_email_code(email, code):
+    try:
+        resend.Emails.send({
+            "from": "RipperMods <noreply@rippermods.ir>", 
+            "to": email,
+            "subject": "کد ورود به RipperMods",
+            "html": f"""
+                <div dir="rtl" style="font-family: tahoma; text-align: center; padding: 20px;">
+                    <h2>کد تایید شما</h2>
+                    <h1 style="color: #007bff; letter-spacing: 5px;">{code}</h1>
+                    <p>این کد فقط ۲ دقیقه اعتبار دارد.</p>
+                </div>
+            """
+        })
+        return True
+    except Exception as e:
+        print(f"Resend Error: {e}")
+        return False
 
 @app.route('/')
 def index():
@@ -109,7 +135,7 @@ def product_detail(pid):
             
             has_bought = False
             if 'site_user_id' in session:
-                cur.execute("SELECT 1 FROM orders WHERE user_id=(SELECT telegram_id FROM site_users WHERE id=%s) AND product_id=%s AND status IN ('approved','delivered')", (session['site_user_id'], pid))
+                cur.execute("SELECT 1 FROM orders WHERE user_id=(SELECT id FROM site_users WHERE id=%s) AND product_id=%s AND status IN ('approved','delivered')", (session['site_user_id'], pid))
                 has_bought = cur.fetchone() is not None
             
     video_url = None
@@ -124,34 +150,42 @@ def register():
     if request.method == 'POST':
         full_name = request.form.get('full_name', '').strip()
         phone = request.form.get('phone', '').strip()
-        tg_id = request.form.get('telegram_id', '').strip().replace('@', '')
+        email = request.form.get('email', '').strip().lower()
         
-        if not full_name or not phone or not tg_id:
+        if not full_name or not phone or not email:
             flash('لطفاً همه فیلدها را پر کنید.', 'error')
             return redirect(url_for('register'))
             
+        code = ''.join(random.choices(string.digits, k=6))
+        expires_at = datetime.now() + timedelta(minutes=2)
+        
         try:
-            headers = {'X-API-Key': SITE_API_KEY}
-            payload = {'telegram_id': int(tg_id)}
-            res = requests.post(f"{BOT_API_URL}/api/send_login_code", json=payload, headers=headers, timeout=10)
-            data = res.json()
+            with get_db() as conn:
+                with conn.cursor() as cur:
+                    # ذخیره کاربر
+                    cur.execute("""
+                        INSERT INTO site_users (email, full_name, phone) 
+                        VALUES (%s, %s, %s) 
+                        ON CONFLICT (email) DO UPDATE SET full_name=EXCLUDED.full_name, phone=EXCLUDED.phone
+                        RETURNING id
+                    """, (email, full_name, phone))
+                    uid = cur.fetchone()['id']
+                    
+                    # ذخیره کد
+                    cur.execute("DELETE FROM link_codes WHERE telegram_id=%s", (uid,)) 
+                    cur.execute("INSERT INTO link_codes (telegram_id, code, expires_at) VALUES (%s, %s, %s)", (uid, code, expires_at))
+                    
+                    session['temp_user_id'] = uid
             
-            if data.get('status') == 'ok':
-                with get_db() as conn:
-                    with conn.cursor() as cur:
-                        cur.execute("INSERT INTO site_users (telegram_id, full_name, phone, username) VALUES (%s, %s, %s, %s) ON CONFLICT (telegram_id) DO UPDATE SET full_name=EXCLUDED.full_name, phone=EXCLUDED.phone RETURNING id", (int(tg_id), full_name, phone, tg_id))
-                        uid = cur.fetchone()['id']
-                        session['temp_user_id'] = uid
-                flash('کد ورود به تلگرام شما ارسال شد.', 'success')
+            if send_email_code(email, code):
+                flash('کد ورود به ایمیل شما ارسال شد.', 'success')
                 return redirect(url_for('verify_code'))
-            elif data.get('status') == 'not_found':
-                flash('این آیدی تلگرام در ربات ثبت‌نام نکرده است. لطفاً اول ربات را استارت کنید.', 'error')
-                return redirect(url_for('register'))
             else:
-                flash('خطا در ارسال پیام. لطفاً بعداً تلاش کنید.', 'error')
+                flash('خطا در ارسال ایمیل. لطفاً بعداً تلاش کنید.', 'error')
                 return redirect(url_for('register'))
-        except Exception:
-            flash('ارتباط با ربات برقرار نشد.', 'error')
+        except Exception as e:
+            print(f"Register Error: {e}")
+            flash('خطا در ثبت‌نام. ممکن است این ایمیل یا شماره قبلا استفاده شده باشد.', 'error')
             return redirect(url_for('register'))
 
     return render_template('register.html')
@@ -160,45 +194,43 @@ def register():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        tg_id = request.form.get('telegram_id', '').strip().replace('@', '')
+        email = request.form.get('email', '').strip().lower()
         
         # چک کد تست ادمین
-        if tg_id == TEST_ADMIN_PHONE:
+        if email == TEST_ADMIN_EMAIL:
             session['is_admin'] = True
             return redirect(url_for('admin_panel'))
 
         try:
-            headers = {'X-API-Key': SITE_API_KEY}
-            payload = {'telegram_id': int(tg_id)}
-            res = requests.post(f"{BOT_API_URL}/api/send_login_code", json=payload, headers=headers, timeout=10)
-            data = res.json()
-            
-            if data.get('status') == 'ok':
-                with get_db() as conn:
-                    with conn.cursor() as cur:
-                        cur.execute("SELECT id FROM site_users WHERE telegram_id=%s", (int(tg_id),))
-                        row = cur.fetchone()
-                        if not row:
-                            cur.execute("SELECT reg_name, phone FROM users WHERE telegram_id=%s", (int(tg_id),))
-                            u = cur.fetchone()
-                            if u:
-                                cur.execute("INSERT INTO site_users (telegram_id, full_name, phone, username) VALUES (%s, %s, %s, %s) RETURNING id", (int(tg_id), u['reg_name'], u['phone'], str(tg_id)))
-                                row = cur.fetchone()
-                            else:
-                                flash('اطلاعات شما در ربات یافت نشد.', 'error')
-                                return redirect(url_for('login'))
-                                
-                        session['temp_user_id'] = row['id']
-                flash('کد ورود به تلگرام شما ارسال شد.', 'success')
+            with get_db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT id FROM site_users WHERE email=%s", (email,))
+                    user = cur.fetchone()
+                    
+                    if not user:
+                        flash('این ایمیل در سایت ثبت نام نکرده است.', 'error')
+                        return redirect(url_for('login'))
+                        
+                    uid = user['id']
+                    
+                    # ساخت کد و ذخیره
+                    code = ''.join(random.choices(string.digits, k=6))
+                    expires_at = datetime.now() + timedelta(minutes=2)
+                    
+                    cur.execute("DELETE FROM link_codes WHERE telegram_id=%s", (uid,))
+                    cur.execute("INSERT INTO link_codes (telegram_id, code, expires_at) VALUES (%s, %s, %s)", (uid, code, expires_at))
+                    
+                    session['temp_user_id'] = uid
+
+            if send_email_code(email, code):
+                flash('کد ورود به ایمیل شما ارسال شد.', 'success')
                 return redirect(url_for('verify_code'))
-            elif data.get('status') == 'not_found':
-                flash('این آیدی در ربات ثبت‌نام نکرده است. لطفاً اول ربات را استارت کنید.', 'error')
-                return redirect(url_for('login'))
             else:
-                flash('خطا در ارسال پیام.', 'error')
+                flash('خطا در ارسال ایمیل.', 'error')
                 return redirect(url_for('login'))
-        except Exception:
-            flash('ارتباط با ربات برقرار نشد.', 'error')
+        except Exception as e:
+            print(f"Login Error: {e}")
+            flash('خطا در ورود.', 'error')
             return redirect(url_for('login'))
 
     return render_template('login.html')
@@ -216,14 +248,10 @@ def verify_code():
                 cur.execute("SELECT * FROM link_codes WHERE code=%s AND used=false AND expires_at > now()", (code,))
                 link = cur.fetchone()
                 
-                if link:
-                    cur.execute("SELECT telegram_id FROM site_users WHERE id=%s", (session['temp_user_id'],))
-                    u = cur.fetchone()
-                    
-                    if link['telegram_id'] == u['telegram_id']:
-                        cur.execute("UPDATE link_codes SET used=true WHERE id=%s", (link['id'],))
-                        session['site_user_id'] = session.pop('temp_user_id')
-                        return redirect(url_for('dashboard'))
+                if link and link['telegram_id'] == session['temp_user_id']:
+                    cur.execute("UPDATE link_codes SET used=true WHERE id=%s", (link['id'],))
+                    session['site_user_id'] = session.pop('temp_user_id')
+                    return redirect(url_for('dashboard'))
                 
                 flash('کد نامعتبر یا منقضی شده است.', 'error')
                 return redirect(url_for('verify_code'))
@@ -243,7 +271,7 @@ def dashboard():
             cur.execute("SELECT * FROM site_users WHERE id=%s", (session['site_user_id'],))
             user = cur.fetchone()
             
-            cur.execute("SELECT * FROM orders WHERE user_id=%s ORDER BY created_at DESC", (user['telegram_id'],))
+            cur.execute("SELECT * FROM orders WHERE user_id=%s ORDER BY created_at DESC", (user['id'],))
             orders = cur.fetchall()
             
             now = datetime.now()
@@ -273,12 +301,11 @@ def buy_product(pid):
         
     with get_db() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT telegram_id FROM site_users WHERE id=%s", (session['site_user_id'],))
+            cur.execute("SELECT id FROM site_users WHERE id=%s", (session['site_user_id'],))
             user = cur.fetchone()
-            tg_id = user['telegram_id']
+            uid = user['id']
             
-            # چک کن کاربر قبلا این محصول رو نخریده باشه
-            cur.execute("SELECT 1 FROM orders WHERE user_id=%s AND product_id=%s AND status IN ('approved','delivered')", (tg_id, pid))
+            cur.execute("SELECT 1 FROM orders WHERE user_id=%s AND product_id=%s AND status IN ('approved','delivered')", (uid, pid))
             if cur.fetchone():
                 flash('شما قبلاً این محصول را خریداری کرده‌اید.', 'error')
                 return redirect(url_for('product_detail', pid=pid))
@@ -286,14 +313,13 @@ def buy_product(pid):
             cur.execute("SELECT * FROM products WHERE id=%s", (pid,))
             product = cur.fetchone()
             
-            # ساخت کد پیگیری و ثبت سفارش اولیه
             tc = f"RM-{random.randint(10000, 99999)}"
             amount = product['price']
             
             cur.execute(
                 "INSERT INTO orders(user_id, product_id, product_name, amount, payment_method, status, tracking_code) "
                 "VALUES(%s, %s, %s, %s, 'card', 'pending', %s) RETURNING id",
-                (tg_id, pid, product['name'], amount, tc)
+                (uid, pid, product['name'], amount, tc)
             )
             order_id = cur.fetchone()['id']
             
@@ -306,7 +332,7 @@ def payment_page(order_id):
     
     with get_db() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT * FROM orders WHERE id=%s AND user_id=(SELECT telegram_id FROM site_users WHERE id=%s)", (order_id, session['site_user_id']))
+            cur.execute("SELECT * FROM orders WHERE id=%s AND user_id=%s", (order_id, session['site_user_id']))
             order = cur.fetchone()
             if not order:
                 return redirect(url_for('dashboard'))
@@ -327,10 +353,9 @@ def upload_receipt(order_id):
         flash('فایلی انتخاب نشده است.', 'error')
         return redirect(url_for('payment_page', order_id=order_id))
 
-    # تبدیل عکس به Base64 برای ذخیره در دیتابیس
     try:
         img_data = file.read()
-        if len(img_data) > 5 * 1024 * 1024: # حداکثر ۵ مگابایت
+        if len(img_data) > 5 * 1024 * 1024:
             flash('حجم عکس نباید بیشتر از ۵ مگابایت باشد.', 'error')
             return redirect(url_for('payment_page', order_id=order_id))
             
@@ -369,11 +394,10 @@ def admin_login():
 def admin_panel():
     with get_db() as conn:
         with conn.cursor() as cur:
-            # گرفتن سفارش‌ها همراه با اطلاعات کاربر
             cur.execute("""
-                SELECT o.*, u.full_name, u.phone 
+                SELECT o.*, u.full_name, u.phone, u.email 
                 FROM orders o 
-                LEFT JOIN site_users u ON o.user_id = u.telegram_id 
+                LEFT JOIN site_users u ON o.user_id = u.id 
                 ORDER BY o.created_at DESC LIMIT 50
             """)
             orders = cur.fetchall()
@@ -439,7 +463,7 @@ def admin_update_product(pid):
     flash('محصول با موفقیت آپدیت شد.', 'success')
     return redirect(url_for('admin_panel'))
 
-# این خطوط باعث می‌شوند جدول‌ها به محض بالا آمدن سرور (حتی با gunicorn) ساخته شوند
+# این خطوط باعث می‌شوند جدول‌ها به محض بالا آمدن سرور ساخته شوند
 try:
     init_db()
 except Exception as e:
