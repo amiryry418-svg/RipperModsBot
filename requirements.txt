@@ -5,3 +5,4 @@ gunicorn>=22.0,<24.0
 requests
 jdatetime
 Werkzeug
+resend
