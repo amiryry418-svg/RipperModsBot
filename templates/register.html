@@ -1,38 +1,46 @@
-{% extends "base.html" %}
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ثبت‌نام | RipperMods</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css">
+    <style>
+        body { font-family: 'Vazirmatn', sans-serif; background-color: #0f172a; color: #f8fafc; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
+        .container { background-color: #1e293b; padding: 30px; border-radius: 15px; box-shadow: 0 0 20px rgba(0, 255, 255, 0.1); width: 100%; max-width: 400px; border: 1px solid #334155; }
+        h2 { text-align: center; color: #06b6d4; margin-bottom: 20px; }
+        input { width: 100%; padding: 12px; margin: 10px 0; background-color: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #fff; font-family: inherit; box-sizing: border-box; }
+        input:focus { outline: none; border-color: #06b6d4; box-shadow: 0 0 10px rgba(6, 182, 212, 0.3); }
+        button { width: 100%; padding: 12px; background-color: #06b6d4; color: #0f172a; border: none; border-radius: 8px; font-weight: bold; font-size: 16px; cursor: pointer; margin-top: 15px; transition: 0.3s; }
+        button:hover { background-color: #0891b2; }
+        .links { text-align: center; margin-top: 15px; font-size: 14px; }
+        .links a { color: #06b6d4; text-decoration: none; }
+        .flash { padding: 10px; margin-bottom: 15px; border-radius: 8px; text-align: center; font-size: 14px; }
+        .flash.error { background-color: #7f1d1d; color: #fca5a5; }
+        .flash.success { background-color: #14532d; color: #86efac; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>ثبت‌نام در RipperMods</h2>
+        
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
 
-{% block title %}ثبت‌نام | RipperMods{% endblock %}
-
-{% block content %}
-<section class="wrap mt-4 mb-4" style="max-width: 500px;">
-    <div class="card">
-        <div class="text-center mb-4">
-            <h2>ثبت‌نام در RipperMods</h2>
-            <p style="color: var(--muted); font-size: 13px; margin-top: 5px;">اطلاعات خود را وارد کنید تا کد تایید برای شما ارسال شود</p>
-        </div>
-
-        <form method="POST" action="/register">
-            <div class="form-group">
-                <label for="full_name">نام و نام خانوادگی</label>
-                <input type="text" id="full_name" name="full_name" class="form-control" placeholder="مثلاً: علی رضایی" required autofocus>
-            </div>
-
-            <div class="form-group">
-                <label for="phone">شماره تماس</label>
-                <input type="tel" id="phone" name="phone" class="form-control" placeholder="مثلاً: 09121234567" required>
-            </div>
-            
-            <div class="form-group">
-                <label for="telegram_id">آیدی عددی تلگرام</label>
-                <input type="text" id="telegram_id" name="telegram_id" class="form-control" placeholder="برای دریافت کد، آیدی عددی خود را وارد کنید" required>
-                <small style="color: var(--muted); font-size: 11px; margin-top: 5px; display: block;">برای پیدا کردن آیدی عددی، به ربات <a href="https://t.me/userinfobot" target="_blank" style="color: var(--red);">@userinfobot</a> پیام دهید.</small>
-            </div>
-
-            <button type="submit" class="btn btn-primary btn-block mt-4"><i class="fa-solid fa-user-plus"></i> ثبت‌نام و دریافت کد</button>
+        <form method="POST">
+            <input type="text" name="full_name" placeholder="نام و نام خانوادگی" required>
+            <input type="tel" name="phone" placeholder="شماره موبایل" required>
+            <input type="email" name="email" placeholder="ایمیل (برای دریافت کد)" required>
+            <button type="submit">دریافت کد تایید</button>
         </form>
-
-        <div class="text-center mt-4" style="border-top: 1px solid var(--line); padding-top: 20px;">
-            <p style="font-size: 13px; color: var(--muted);">قبلاً ثبت‌نام کرده‌اید؟ <a href="/login" style="color: var(--red); font-weight: bold;">وارد شوید</a></p>
+        <div class="links">
+            قبلاً ثبت‌نام کردید؟ <a href="{{ url_for('login') }}">ورود</a>
         </div>
     </div>
-</section>
-{% endblock %}
+</body>
+</html>
