@@ -1,40 +1,23 @@
-<!DOCTYPE html>
-<html lang="fa" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>تایید کد | RipperMods</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css">
-    <style>
-        body { font-family: 'Vazirmatn', sans-serif; background-color: #0f172a; color: #f8fafc; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
-        .container { background-color: #1e293b; padding: 30px; border-radius: 15px; box-shadow: 0 0 20px rgba(0, 255, 255, 0.1); width: 100%; max-width: 400px; border: 1px solid #334155; text-align: center; }
-        h2 { color: #06b6d4; margin-bottom: 10px; }
-        p { font-size: 14px; color: #94a3b8; margin-bottom: 20px; }
-        input { width: 100%; padding: 15px; margin: 10px 0; background-color: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #fff; font-family: inherit; box-sizing: border-box; text-align: center; font-size: 24px; letter-spacing: 5px; }
-        input:focus { outline: none; border-color: #06b6d4; box-shadow: 0 0 10px rgba(6, 182, 212, 0.3); }
-        button { width: 100%; padding: 12px; background-color: #06b6d4; color: #0f172a; border: none; border-radius: 8px; font-weight: bold; font-size: 16px; cursor: pointer; margin-top: 15px; transition: 0.3s; }
-        button:hover { background-color: #0891b2; }
-        .flash { padding: 10px; margin-bottom: 15px; border-radius: 8px; text-align: center; font-size: 14px; }
-        .flash.error { background-color: #7f1d1d; color: #fca5a5; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h2>کد تایید را وارد کنید</h2>
-        <p>کد ۶ رقمی به ایمیل شما ارسال شد. (اعتبار ۲ دقیقه)</p>
-        
-        {% with messages = get_flashed_messages(with_categories=true) %}
-          {% if messages %}
-            {% for category, message in messages %}
-              <div class="flash {{ category }}">{{ message }}</div>
-            {% endfor %}
-          {% endif %}
-        {% endwith %}
+{% extends "base.html" %}
 
-        <form method="POST">
-            <input type="text" name="code" placeholder="------" maxlength="6" required autocomplete="off">
-            <button type="submit">تایید و ورود</button>
-        </form>
+{% block title %}تایید کد | RipperMods{% endblock %}
+
+{% block content %}
+<section class="hero" style="padding: 80px 0;">
+    <div class="wrap" style="display: flex; justify-content: center;">
+        <div class="card" style="width: 100%; max-width: 420px; animation: fadeInUp 0.8s ease-out; text-align: center;">
+            <h2 style="color: var(--red); margin-bottom: 10px;">کد تایید را وارد کنید</h2>
+            <p style="color: var(--muted); font-size: 14px; margin-bottom: 30px;">کد ۶ رقمی به ایمیل شما ارسال شد. (اعتبار ۲ دقیقه)</p>
+
+            <form method="POST">
+                <div class="form-group">
+                    <input type="text" name="code" class="form-control" placeholder="------" maxlength="6" required autocomplete="off" style="text-align: center; font-size: 24px; letter-spacing: 8px;">
+                </div>
+                <button type="submit" class="btn btn-primary btn-block mt-2">
+                    <i class="fa-solid fa-check"></i> تایید و ورود
+                </button>
+            </form>
+        </div>
     </div>
-</body>
-</html>
+</section>
+{% endblock %}
