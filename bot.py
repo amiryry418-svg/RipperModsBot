@@ -354,17 +354,6 @@ def init_db():
                 for sql in schema:
                     cur.execute(sql)
 
-                # پاکسازی رکوردهای قدیمی برای جلوگیری از خطای Foreign Key
-                cur.execute("DELETE FROM orders WHERE user_id NOT IN (SELECT id FROM site_users)")
-                cur.execute("DELETE FROM link_codes WHERE telegram_id NOT IN (SELECT id FROM site_users)")
-
-                cur.execute("DELETE FROM orders WHERE user_id NOT IN (SELECT id FROM site_users)")
-                cur.execute("DELETE FROM link_codes WHERE telegram_id NOT IN (SELECT id FROM site_users)")
-                cur.execute("""ALTER TABLE link_codes DROP CONSTRAINT IF EXISTS link_codes_telegram_id_fkey""")
-                cur.execute("""ALTER TABLE link_codes ADD CONSTRAINT link_codes_telegram_id_fkey FOREIGN KEY (telegram_id) REFERENCES site_users(id) ON DELETE CASCADE""")
-                cur.execute("""ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_user_id_fkey""")
-                cur.execute("""ALTER TABLE orders ADD CONSTRAINT orders_user_id_fkey FOREIGN KEY (user_id) REFERENCES site_users(id) ON DELETE CASCADE""")
-
                 # تنظیمات اولیه عضویت اجباری؛ پس از آن مدیریت کامل از پنل انجام می‌شود.
                 cur.execute("INSERT INTO settings(key,value) VALUES('force_join_enabled','true') ON CONFLICT(key) DO NOTHING")
                 cur.execute("""INSERT INTO force_join_chats(chat_id,title,invite_url,enabled)
