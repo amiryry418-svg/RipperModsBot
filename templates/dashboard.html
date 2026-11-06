@@ -12,7 +12,7 @@
                 <h2 style="margin-bottom: 5px;">خوش آمدید، {{ user.full_name }} 👋</h2>
                 <p style="color: var(--muted); font-size: 13px;">
                     <i class="fa-solid fa-phone"></i> {{ user.phone }} | 
-                    <i class="fa-brands fa-telegram"></i> {{ user.telegram_id }}
+                    <i class="fa-solid fa-envelope"></i> {{ user.email or 'ایمیل ثبت نشده' }}
                 </p>
             </div>
             <div style="text-align: left;">
