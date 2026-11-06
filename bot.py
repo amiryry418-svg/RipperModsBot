@@ -354,14 +354,17 @@ def init_db():
                 for sql in schema:
                     cur.execute(sql)
 
-                # انتقال کاربران قدیمی از users به site_users (برای جلوگیری از خطای Foreign Key)
+                # انتقال کاربران قدیمی از users به site_users (فقط اونایی که مشکل شماره ندارن)
                 cur.execute("""
                     INSERT INTO site_users (telegram_id, full_name, phone)
-                    SELECT telegram_id,
-                           COALESCE(reg_name, first_name, 'کاربر قدیمی'),
-                           COALESCE(phone, 'user_' || telegram_id::text)
-                    FROM users
-                    WHERE telegram_id NOT IN (SELECT telegram_id FROM site_users WHERE telegram_id IS NOT NULL)
+                    SELECT u.telegram_id, 
+                           COALESCE(u.reg_name, u.first_name, 'کاربر قدیمی'), 
+                           u.phone
+                    FROM users u
+                    WHERE u.telegram_id NOT IN (SELECT telegram_id FROM site_users WHERE telegram_id IS NOT NULL)
+                      AND u.phone IS NOT NULL 
+                      AND u.phone NOT IN (SELECT phone FROM site_users WHERE phone IS NOT NULL)
+                      AND u.phone NOT IN (SELECT phone FROM users WHERE phone IS NOT NULL GROUP BY phone HAVING COUNT(*) > 1)
                     ON CONFLICT (telegram_id) DO NOTHING
                 """)
 
