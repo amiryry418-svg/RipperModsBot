@@ -25,7 +25,18 @@
     </script>
 
     <style>
-        body { font-family: 'Vazirmatn', sans-serif; background-color: #0f172a; color: #f8fafc; margin: 0; padding: 20px; }
+        /* پالت رنگی جدید برگرفته از پیشنهاد هوش مصنوعی */
+        :root {
+            --bg-main: #10121B;       /* پس‌زمینه اصلی */
+            --bg-card: #191D2B;       /* کارت‌ها */
+            --neon-purple: #A855F7;   /* بنفش نئونی (برند) */
+            --neon-green: #00E5A8;    /* سبز نئونی (موجودی/تایید) */
+            --coral-red: #FF4D6D;     /* قرمز کورال (قیمت/دکمه) */
+            --text-main: #FFFFFF;
+            --text-muted: #9CA3AF;
+        }
+
+        body { font-family: 'Vazirmatn', sans-serif; background-color: var(--bg-main); color: var(--text-main); margin: 0; padding: 20px; }
         .container { max-width: 1100px; margin: 0 auto; }
         
         /* گرید اصلی */
@@ -33,50 +44,51 @@
         @media (max-width: 768px) { .main-grid { grid-template-columns: 1fr; } }
 
         /* استایل پایه باکس‌ها */
-        .box { background-color: #1e293b; border-radius: 12px; padding: 20px; box-sizing: border-box; border: 1px solid #334155; }
+        .box { background-color: var(--bg-card); border-radius: 12px; padding: 20px; box-sizing: border-box; border: 1px solid #2a2f45; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
         
-        /* بلوک اطلاعات و خرید */
-        .box-info { border-top: 4px solid #ef4444; }
-        .title { font-size: 22px; color: #f8fafc; margin-top: 0; margin-bottom: 15px; }
-        .short-desc { font-size: 14px; color: #cbd5e1; line-height: 1.8; margin-bottom: 20px; }
+        /* بلوک اطلاعات و خرید (نوار بنفش) */
+        .box-info { border-top: 4px solid var(--neon-purple); }
+        .title { font-size: 24px; color: var(--text-main); margin-top: 0; margin-bottom: 15px; font-weight: bold; }
+        .short-desc { font-size: 14px; color: var(--text-muted); line-height: 1.8; margin-bottom: 20px; }
         
-        .buy-section { background-color: #0f172a; border-radius: 8px; padding: 15px; border: 1px solid #334155; }
-        .price-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; font-size: 14px; color: #94a3b8; }
-        .price-value { font-size: 22px; font-weight: bold; color: #ef4444; }
+        .buy-section { background-color: var(--bg-main); border-radius: 8px; padding: 15px; border: 1px solid #2a2f45; }
+        .price-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; font-size: 14px; color: var(--text-muted); }
+        .price-value { font-size: 24px; font-weight: bold; color: var(--coral-red); }
         
-        .buy-btn { width: 100%; padding: 14px; background-color: #ef4444; color: #fff; border: none; border-radius: 6px; font-family: inherit; font-weight: bold; font-size: 16px; cursor: pointer; transition: 0.3s; display: flex; justify-content: center; align-items: center; gap: 8px; }
-        .buy-btn:hover { background-color: #dc2626; box-shadow: 0 0 15px rgba(239, 68, 68, 0.4); }
-        .buy-btn:disabled { background-color: #10b981; cursor: not-allowed; }
-        .base-link { display: block; text-align: center; font-size: 13px; color: #94a3b8; text-decoration: none; margin-top: 15px; transition: 0.3s; }
-        .base-link:hover { color: #f8fafc; }
+        .buy-btn { width: 100%; padding: 15px; background-color: var(--coral-red); color: #fff; border: none; border-radius: 8px; font-family: inherit; font-weight: bold; font-size: 16px; cursor: pointer; transition: 0.3s; display: flex; justify-content: center; align-items: center; gap: 8px; }
+        .buy-btn:hover { background-color: #e03e5c; box-shadow: 0 0 15px rgba(255, 77, 109, 0.4); }
+        .buy-btn:disabled { background-color: var(--neon-green); color: #000; cursor: not-allowed; }
+        
+        .base-link { display: block; text-align: center; font-size: 13px; color: var(--neon-purple); text-decoration: none; margin-top: 15px; transition: 0.3s; }
+        .base-link:hover { color: #c084fc; text-shadow: 0 0 8px rgba(168, 85, 247, 0.5); }
 
         /* بلوک عکس اصلی */
-        .image-box { padding: 0; overflow: hidden; background-color: #0f172a; display: flex; justify-content: center; align-items: center; min-height: 300px; border-top: 4px solid #ef4444; }
+        .image-box { padding: 0; overflow: hidden; background-color: var(--bg-main); display: flex; justify-content: center; align-items: center; min-height: 300px; border-top: 4px solid var(--neon-purple); }
         .image-box img { width: 100%; height: auto; max-height: 450px; object-fit: contain; border-radius: 0 0 12px 12px; }
 
-        /* بخش گالری (بنفش تیره) */
-        .gallery-box { margin-bottom: 20px; border-top: 4px solid #8b5cf6; }
-        .gallery-box h3 { color: #a78bfa; }
+        /* بخش گالری (بنفش) */
+        .gallery-box { margin-bottom: 20px; border-top: 4px solid var(--neon-purple); }
+        .gallery-box h3 { color: var(--neon-purple); }
         .gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; margin-top: 15px; }
-        .gallery-item { background-color: #0f172a; border-radius: 8px; overflow: hidden; border: 1px solid #334155; position: relative; }
+        .gallery-item { background-color: var(--bg-main); border-radius: 8px; overflow: hidden; border: 1px solid #2a2f45; position: relative; }
         .gallery-item img, .gallery-item video { width: 100%; height: 150px; object-fit: cover; display: block; cursor: pointer; }
 
-        /* بخش آموزش نصب (خاکستری روشن) */
-        .install-box { margin-bottom: 20px; border-top: 4px solid #94a3b8; }
-        .install-box h3 { color: #e2e8f0; }
-        .install-content { font-size: 15px; color: #cbd5e1; line-height: 1.9; }
-        .install-content strong { color: #f8fafc; }
+        /* بخش آموزش نصب (سبز نئونی) */
+        .install-box { margin-bottom: 20px; border-top: 4px solid var(--neon-green); }
+        .install-box h3 { color: var(--neon-green); }
+        .install-content { font-size: 15px; color: var(--text-muted); line-height: 1.9; }
+        .install-content strong { color: var(--text-main); }
 
-        /* بخش توضیحات کامل (نارنجی/کهربایی) */
-        .full-desc-box { margin-bottom: 20px; border-top: 4px solid #f59e0b; }
-        .full-desc-box h3 { color: #fbbf24; }
-        .full-desc { color: #cbd5e1; line-height: 1.8; font-size: 15px; }
+        /* بخش توضیحات کامل */
+        .full-desc-box { margin-bottom: 20px; border-top: 4px solid var(--neon-purple); }
+        .full-desc-box h3 { color: var(--neon-purple); }
+        .full-desc { color: var(--text-muted); line-height: 1.8; font-size: 15px; }
 
-        /* بخش نظرات (سبز زمردی) */
-        .reviews-box { background-color: #1e293b; border-radius: 12px; padding: 30px; text-align: center; color: #94a3b8; border-top: 4px solid #10b981; margin-bottom: 20px; }
-        .reviews-box h3 { color: #34d399; }
+        /* بخش نظرات */
+        .reviews-box { background-color: var(--bg-card); border-radius: 12px; padding: 30px; text-align: center; color: var(--text-muted); border-top: 4px solid var(--neon-green); margin-bottom: 20px; }
+        .reviews-box h3 { color: var(--neon-green); }
         
-        h3 { border-bottom: 1px solid #334155; padding-bottom: 10px; margin-top: 0; margin-bottom: 15px; font-size: 18px;}
+        h3 { border-bottom: 1px solid #2a2f45; padding-bottom: 10px; margin-top: 0; margin-bottom: 15px; font-size: 18px;}
     </style>
 </head>
 <body>
@@ -114,7 +126,7 @@
                 {% elif images %}
                     <img src="{{ images[0].image_url }}" alt="{{ product.name }}">
                 {% else %}
-                    <div style="color: #64748b;">عکسی ثبت نشده است</div>
+                    <div style="color: var(--text-muted);">عکسی ثبت نشده است</div>
                 {% endif %}
             </div>
         </div>
