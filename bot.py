@@ -2832,4 +2832,4 @@ else:
         init_db()
     except Exception:
         log.exception('init_db failed on import')
-    _start_bot_thread_once()
+    _start_bot_thread_once() 
