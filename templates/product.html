@@ -6,7 +6,6 @@
     <title>{{ product.name }} | RipperMods</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css">
     
-    <!-- Structured Data برای سئو گوگل -->
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
@@ -33,10 +32,12 @@
         .main-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 20px; margin-bottom: 20px; align-items: start; }
         @media (max-width: 768px) { .main-grid { grid-template-columns: 1fr; } }
 
-        .box { background-color: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 20px; box-sizing: border-box; }
+        /* استایل پایه باکس‌ها */
+        .box { background-color: #1e293b; border-radius: 12px; padding: 20px; box-sizing: border-box; border: 1px solid #334155; }
         
         /* بلوک اطلاعات و خرید */
-        .title { font-size: 22px; color: #06b6d4; margin-top: 0; margin-bottom: 15px; }
+        .box-info { border-top: 4px solid #ef4444; }
+        .title { font-size: 22px; color: #f8fafc; margin-top: 0; margin-bottom: 15px; }
         .short-desc { font-size: 14px; color: #cbd5e1; line-height: 1.8; margin-bottom: 20px; }
         
         .buy-section { background-color: #0f172a; border-radius: 8px; padding: 15px; border: 1px solid #334155; }
@@ -44,42 +45,46 @@
         .price-value { font-size: 22px; font-weight: bold; color: #ef4444; }
         
         .buy-btn { width: 100%; padding: 14px; background-color: #ef4444; color: #fff; border: none; border-radius: 6px; font-family: inherit; font-weight: bold; font-size: 16px; cursor: pointer; transition: 0.3s; display: flex; justify-content: center; align-items: center; gap: 8px; }
-        .buy-btn:hover { background-color: #dc2626; }
+        .buy-btn:hover { background-color: #dc2626; box-shadow: 0 0 15px rgba(239, 68, 68, 0.4); }
         .buy-btn:disabled { background-color: #10b981; cursor: not-allowed; }
-        .base-link { display: block; text-align: center; font-size: 13px; color: #06b6d4; text-decoration: none; margin-top: 15px; }
+        .base-link { display: block; text-align: center; font-size: 13px; color: #94a3b8; text-decoration: none; margin-top: 15px; transition: 0.3s; }
+        .base-link:hover { color: #f8fafc; }
 
         /* بلوک عکس اصلی */
-        .image-box { padding: 0; overflow: hidden; background-color: #0f172a; display: flex; justify-content: center; align-items: center; min-height: 300px; }
-        .image-box img { width: 100%; height: auto; max-height: 450px; object-fit: contain; border-radius: 12px; }
+        .image-box { padding: 0; overflow: hidden; background-color: #0f172a; display: flex; justify-content: center; align-items: center; min-height: 300px; border-top: 4px solid #ef4444; }
+        .image-box img { width: 100%; height: auto; max-height: 450px; object-fit: contain; border-radius: 0 0 12px 12px; }
 
-        /* بخش گالری (بنفش) */
-        .gallery-box { margin-bottom: 20px; }
+        /* بخش گالری (بنفش تیره) */
+        .gallery-box { margin-bottom: 20px; border-top: 4px solid #8b5cf6; }
+        .gallery-box h3 { color: #a78bfa; }
         .gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; margin-top: 15px; }
         .gallery-item { background-color: #0f172a; border-radius: 8px; overflow: hidden; border: 1px solid #334155; position: relative; }
         .gallery-item img, .gallery-item video { width: 100%; height: 150px; object-fit: cover; display: block; cursor: pointer; }
-        
-        /* بخش آموزش نصب (آبی) */
-        .install-box { margin-bottom: 20px; }
-        .install-content { font-size: 15px; color: #cbd5e1; line-height: 1.9; }
-        .install-content strong { color: #06b6d4; }
 
-        /* بخش توضیحات کامل (اختیاری) */
-        .full-desc-box { margin-bottom: 20px; }
+        /* بخش آموزش نصب (خاکستری روشن) */
+        .install-box { margin-bottom: 20px; border-top: 4px solid #94a3b8; }
+        .install-box h3 { color: #e2e8f0; }
+        .install-content { font-size: 15px; color: #cbd5e1; line-height: 1.9; }
+        .install-content strong { color: #f8fafc; }
+
+        /* بخش توضیحات کامل (نارنجی/کهربایی) */
+        .full-desc-box { margin-bottom: 20px; border-top: 4px solid #f59e0b; }
+        .full-desc-box h3 { color: #fbbf24; }
         .full-desc { color: #cbd5e1; line-height: 1.8; font-size: 15px; }
 
-        /* بخش نظرات (مشکی) */
-        .reviews-box { background-color: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 30px; text-align: center; color: #94a3b8; }
+        /* بخش نظرات (سبز زمردی) */
+        .reviews-box { background-color: #1e293b; border-radius: 12px; padding: 30px; text-align: center; color: #94a3b8; border-top: 4px solid #10b981; margin-bottom: 20px; }
+        .reviews-box h3 { color: #34d399; }
         
-        h3 { color: #06b6d4; border-bottom: 1px solid #334155; padding-bottom: 10px; margin-top: 0; margin-bottom: 15px; font-size: 18px;}
+        h3 { border-bottom: 1px solid #334155; padding-bottom: 10px; margin-top: 0; margin-bottom: 15px; font-size: 18px;}
     </style>
 </head>
 <body>
     <div class="container">
         
-        <!-- چیدمان بالا (توضیحات + عکس) -->
         <div class="main-grid">
             <!-- اطلاعات و خرید -->
-            <div class="box">
+            <div class="box box-info">
                 <h2 class="title">{{ product.name }}</h2>
                 <div class="short-desc">{{ product.short_desc | safe if product.short_desc else 'توضیحات کوتاهی برای این محصول ثبت نشده است.' }}</div>
                 
@@ -118,7 +123,6 @@
         <div class="box gallery-box">
             <h3>🖼️ گالری تصاویر و ویدیو محصول</h3>
             <div class="gallery-grid">
-                <!-- نمایش ویدیو به عنوان اولین آیتم گالری -->
                 {% if video_url %}
                 <div class="gallery-item">
                     <video controls>
@@ -127,7 +131,6 @@
                 </div>
                 {% endif %}
                 
-                <!-- نمایش عکس‌های گالری (به جز کاور) -->
                 {% for img in images %}
                     {% if not img.is_cover %}
                     <div class="gallery-item">
@@ -151,7 +154,6 @@
             </div>
         </div>
 
-        <!-- توضیحات کامل (اگر وجود داشته باشه) -->
         {% if product.full_desc %}
         <div class="box full-desc-box">
             <h3>📝 توضیحات بیشتر</h3>
