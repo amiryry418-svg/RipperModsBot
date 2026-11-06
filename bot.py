@@ -357,7 +357,9 @@ def init_db():
                 # انتقال کاربران قدیمی از users به site_users (برای جلوگیری از خطای Foreign Key)
                 cur.execute("""
                     INSERT INTO site_users (telegram_id, full_name, phone)
-                    SELECT telegram_id, COALESCE(reg_name, first_name, 'کاربر قدیمی'), COALESCE(phone, 'نامشخص')
+                    SELECT telegram_id,
+                           COALESCE(reg_name, first_name, 'کاربر قدیمی'),
+                           COALESCE(phone, 'user_' || telegram_id::text)
                     FROM users
                     WHERE telegram_id NOT IN (SELECT telegram_id FROM site_users WHERE telegram_id IS NOT NULL)
                     ON CONFLICT (telegram_id) DO NOTHING
