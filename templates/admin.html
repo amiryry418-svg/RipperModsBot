@@ -108,7 +108,7 @@
             </div>
         </div>
 
-        <!-- مدیریت محصولات (قیمت، لینک، عکس) -->
+        <!-- مدیریت محصولات -->
         <div>
             <div class="card" style="height: 100%;">
                 <h3 style="margin-bottom: 20px; border-bottom: 1px solid var(--line); padding-bottom: 15px;">
@@ -128,6 +128,18 @@
                             <input type="text" name="link" class="form-control" placeholder="https://..." style="height: 40px; font-size: 13px;">
                         </div>
                         <div class="form-group">
+                            <label style="font-size: 11px;">توضیحات کوتاه</label>
+                            <textarea name="short_desc" class="form-control" style="height: 60px; font-size: 13px;">{{ p.short_desc or '' }}</textarea>
+                        </div>
+                        <div class="form-group">
+                            <label style="font-size: 11px;">توضیحات کامل</label>
+                            <textarea name="full_desc" class="form-control" style="height: 80px; font-size: 13px;">{{ p.full_desc or '' }}</textarea>
+                        </div>
+                        <div class="form-group">
+                            <label style="font-size: 11px;">لینک ویدیو (mp4)</label>
+                            <input type="text" name="video_url" class="form-control" placeholder="https://..." value="{{ p.video_url or '' }}" style="height: 40px; font-size: 13px;">
+                        </div>
+                        <div class="form-group">
                             <label style="font-size: 11px;">لینک عکس کاور جدید</label>
                             <input type="text" name="cover" class="form-control" placeholder="https://... (اختیاری)" style="height: 40px; font-size: 13px;">
                         </div>
@@ -144,7 +156,7 @@
     </div>
 </section>
 
-<!-- مدال نمایش عکس -->
+<!-- مدال نمایش عکس رسید -->
 <div id="receiptModal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 100; justify-content: center; align-items: center; padding: 20px;">
     <div style="max-width: 500px; width: 100%; background: #111; padding: 15px; border-radius: 15px; position: relative;">
         <button onclick="closeReceipt()" style="position: absolute; top: -15px; left: -15px; background: var(--red); border: none; color: white; width: 35px; height: 35px; border-radius: 50%; cursor: pointer; font-size: 20px;">×</button>
