@@ -14,21 +14,21 @@
     <!-- Header -->
     <header class="topbar">
         <div class="wrap nav">
-            <a class="brand" href="/">
+            <a class="brand" href="{{ url_for('index') }}">
                 <span class="brand-mark">R</span>
                 <span class="brand-name">RIPPER<span>MODS</span><small>CUSTOMER PORTAL</small></span>
             </a>
             <nav class="navlinks">
-                <a href="/#products">محصولات</a>
+                <a href="{{ url_for('index') }}#products">محصولات</a>
                 {% if session.get('site_user_id') %}
-                    <a href="/dashboard"><i class="fa-solid fa-user"></i> پنل کاربری</a>
-                    <a href="/logout" class="btn btn-secondary" style="padding: 8px 15px; min-height: 40px; font-size: 12px;">خروج</a>
+                    <a href="{{ url_for('dashboard') }}"><i class="fa-solid fa-user"></i> پنل کاربری</a>
+                    <a href="{{ url_for('logout') }}" class="btn btn-secondary" style="padding: 8px 15px; min-height: 40px; font-size: 12px;">خروج</a>
                 {% elif session.get('is_admin') %}
-                    <a href="/admin/panel"><i class="fa-solid fa-shield-halved"></i> پنل ادمین</a>
-                    <a href="/logout" class="btn btn-secondary" style="padding: 8px 15px; min-height: 40px; font-size: 12px;">خروج</a>
+                    <a href="{{ url_for('admin_panel') }}"><i class="fa-solid fa-shield-halved"></i> پنل ادمین</a>
+                    <a href="{{ url_for('logout') }}" class="btn btn-secondary" style="padding: 8px 15px; min-height: 40px; font-size: 12px;">خروج</a>
                 {% else %}
-                    <a href="/login">ورود</a>
-                    <a href="/register" class="btn btn-primary" style="padding: 8px 15px; min-height: 40px; font-size: 13px;">ثبت‌نام</a>
+                    <a href="{{ url_for('login') }}">ورود</a>
+                    <a href="{{ url_for('register') }}" class="btn btn-primary" style="padding: 8px 15px; min-height: 40px; font-size: 13px;">ثبت‌نام</a>
                 {% endif %}
             </nav>
         </div>
