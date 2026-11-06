@@ -354,20 +354,12 @@ def init_db():
                 for sql in schema:
                     cur.execute(sql)
 
-                # انتقال کاربران قدیمی از users به site_users (فقط اونایی که مشکل شماره ندارن)
-                cur.execute("""
-                    INSERT INTO site_users (telegram_id, full_name, phone)
-                    SELECT u.telegram_id, 
-                           COALESCE(u.reg_name, u.first_name, 'کاربر قدیمی'), 
-                           u.phone
-                    FROM users u
-                    WHERE u.telegram_id NOT IN (SELECT telegram_id FROM site_users WHERE telegram_id IS NOT NULL)
-                      AND u.phone IS NOT NULL 
-                      AND u.phone NOT IN (SELECT phone FROM site_users WHERE phone IS NOT NULL)
-                      AND u.phone NOT IN (SELECT phone FROM users WHERE phone IS NOT NULL GROUP BY phone HAVING COUNT(*) > 1)
-                    ON CONFLICT (telegram_id) DO NOTHING
-                """)
+                # پاکسازی رکوردهای قدیمی برای جلوگیری از خطای Foreign Key
+                cur.execute("DELETE FROM orders WHERE user_id NOT IN (SELECT id FROM site_users)")
+                cur.execute("DELETE FROM link_codes WHERE telegram_id NOT IN (SELECT id FROM site_users)")
 
+                cur.execute("DELETE FROM orders WHERE user_id NOT IN (SELECT id FROM site_users)")
+                cur.execute("DELETE FROM link_codes WHERE telegram_id NOT IN (SELECT id FROM site_users)")
                 cur.execute("""ALTER TABLE link_codes DROP CONSTRAINT IF EXISTS link_codes_telegram_id_fkey""")
                 cur.execute("""ALTER TABLE link_codes ADD CONSTRAINT link_codes_telegram_id_fkey FOREIGN KEY (telegram_id) REFERENCES site_users(id) ON DELETE CASCADE""")
                 cur.execute("""ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_user_id_fkey""")
@@ -2832,4 +2824,4 @@ else:
         init_db()
     except Exception:
         log.exception('init_db failed on import')
-    _start_bot_thread_once() 
+    _start_bot_thread_once()
