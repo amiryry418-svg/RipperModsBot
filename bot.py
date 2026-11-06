@@ -2,7 +2,6 @@
 """RipperMods Persian Telegram shop. PostgreSQL-backed, deployable on Render."""
 from __future__ import annotations
 import os, logging, threading, time, asyncio, io, re, random, requests, secrets, hmac
-import resend
 from contextlib import contextmanager
 from decimal import Decimal, InvalidOperation
 from typing import Optional
@@ -23,8 +22,6 @@ logging.basicConfig(level=os.getenv('LOG_LEVEL','INFO'), format='%(asctime)s %(l
 log = logging.getLogger('rippermods')
 app = Flask(__name__)
 SITE_API_KEY = os.getenv('SITE_API_KEY', '').strip()
-RESEND_API_KEY = os.getenv('RESEND_API_KEY', '').strip()
-resend.api_key = RESEND_API_KEY
 
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 DATABASE_URL = os.environ.get('DATABASE_URL')
@@ -164,21 +161,24 @@ def api_send_login_code():
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
         return jsonify(status='invalid_request'), 400
-
-    email_from_website = payload.get('email')
-    if not isinstance(email_from_website, str) or not email_from_website.strip():
+    telegram_id = payload.get('telegram_id')
+    try:
+        telegram_id = int(telegram_id)
+        if telegram_id <= 0:
+            raise ValueError
+    except (TypeError, ValueError):
         return jsonify(status='invalid_request'), 400
-    email_from_website = email_from_website.strip()
+
+    if not BOT_TOKEN:
+        log.error('SITE_API_KEY is configured but BOT_TOKEN is missing; cannot send login code.')
+        return jsonify(status='unavailable'), 503
 
     try:
         with db() as conn:
             with conn.cursor() as cur:
-                cur.execute('SELECT id FROM site_users WHERE email=%s', (email_from_website,))
-                site_user = cur.fetchone()
-                if not site_user:
+                cur.execute('SELECT 1 FROM users WHERE telegram_id=%s', (telegram_id,))
+                if not cur.fetchone():
                     return jsonify(status='not_found'), 404
-
-                telegram_id = site_user['id']
 
                 # Generate a unique six-digit code and invalidate previous unused codes.
                 code = None
@@ -198,17 +198,34 @@ def api_send_login_code():
                     (code, telegram_id)
                 )
 
+        # Send only after the database transaction has committed.
         try:
-            resend.Emails.send({
-                "from": "RipperMods <noreply@rippermods.ir>",
-                "to": email_from_website,
-                "subject": "کد ورود به RipperMods",
-                "html": f"<p>کد شما: {code}</p>"
-            })
-            return jsonify(status='ok'), 200
-        except Exception as e:
-            log.error(f"Resend error: {e}")
-            return jsonify(status='error'), 500
+            telegram_response = requests.post(
+                f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage',
+                json={
+                    'chat_id': telegram_id,
+                    'text': f'🔐 کد ورود به سایت RipperMods: {code}\n\n⏳ این کد فقط ۲ دقیقه اعتبار دارد.'
+                },
+                timeout=12
+            )
+            try:
+                telegram_result = telegram_response.json()
+            except ValueError:
+                telegram_result = {}
+
+            if telegram_response.ok and telegram_result.get('ok') is True:
+                return jsonify(status='ok'), 200
+
+            description = str(telegram_result.get('description', '')).lower()
+            if telegram_response.status_code == 403 and 'blocked' in description:
+                return jsonify(status='blocked'), 200
+
+            log.warning('Telegram sendMessage failed for login-code request (HTTP %s): %s',
+                        telegram_response.status_code, description or 'no description')
+            return jsonify(status='send_failed'), 502
+        except requests.RequestException:
+            log.exception('Telegram API request failed while sending website login code.')
+            return jsonify(status='send_failed'), 502
 
     except Exception:
         log.exception('Failed to create/send website login code.')
@@ -284,9 +301,6 @@ def init_db():
             """ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT""",
             """CREATE TABLE IF NOT EXISTS products (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', price NUMERIC(14,2) NOT NULL CHECK(price >= 0), active BOOLEAN NOT NULL DEFAULT true, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), upgrade_price NUMERIC(14,2) DEFAULT 0)""",
             """ALTER TABLE products ADD COLUMN IF NOT EXISTS upgrade_price NUMERIC(14,2) DEFAULT 0""",
-            """ALTER TABLE products ADD COLUMN IF NOT EXISTS short_desc TEXT""",
-            """ALTER TABLE products ADD COLUMN IF NOT EXISTS full_desc TEXT""",
-            """ALTER TABLE products ADD COLUMN IF NOT EXISTS video_url TEXT""",
             """CREATE TABLE IF NOT EXISTS orders (id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL REFERENCES users(telegram_id), product_id BIGINT REFERENCES products(id), product_name TEXT NOT NULL, amount NUMERIC(14,2) NOT NULL CHECK(amount >= 0), payment_method TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected','delivered','cancelled')), receipt_file_id TEXT, coupon_id BIGINT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), wallet_debited BOOLEAN NOT NULL DEFAULT false, delivery_sent BOOLEAN NOT NULL DEFAULT false, is_upgrade BOOLEAN NOT NULL DEFAULT false)""",
             """ALTER TABLE orders ADD COLUMN IF NOT EXISTS is_upgrade BOOLEAN NOT NULL DEFAULT false""",
             """ALTER TABLE orders ADD COLUMN IF NOT EXISTS link_expires_at TIMESTAMPTZ""",
@@ -340,10 +354,17 @@ def init_db():
                 for sql in schema:
                     cur.execute(sql)
 
-                # اصلاح Foreign Key های link_codes و orders برای استفاده از site_users
+                # انتقال کاربران قدیمی از users به site_users (برای جلوگیری از خطای Foreign Key)
+                cur.execute("""
+                    INSERT INTO site_users (telegram_id, full_name, phone)
+                    SELECT telegram_id, COALESCE(reg_name, first_name, 'کاربر قدیمی'), COALESCE(phone, 'نامشخص')
+                    FROM users
+                    WHERE telegram_id NOT IN (SELECT telegram_id FROM site_users WHERE telegram_id IS NOT NULL)
+                    ON CONFLICT (telegram_id) DO NOTHING
+                """)
+
                 cur.execute("""ALTER TABLE link_codes DROP CONSTRAINT IF EXISTS link_codes_telegram_id_fkey""")
                 cur.execute("""ALTER TABLE link_codes ADD CONSTRAINT link_codes_telegram_id_fkey FOREIGN KEY (telegram_id) REFERENCES site_users(id) ON DELETE CASCADE""")
-
                 cur.execute("""ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_user_id_fkey""")
                 cur.execute("""ALTER TABLE orders ADD CONSTRAINT orders_user_id_fkey FOREIGN KEY (user_id) REFERENCES site_users(id) ON DELETE CASCADE""")
 
@@ -1914,7 +1935,7 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         log.exception('Callback handler error')
         try:
-            await q.message.reply_text(f'خطا: {str(e)}')
+            await q.message.reply_text('خطایی رخ داد. لطفاً دوباره تلاش کنید یا با پشتیبانی تماس بگیرید.')
         except TelegramError:
             pass
 
