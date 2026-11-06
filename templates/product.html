@@ -14,77 +14,61 @@
       "name": "{{ product.name }}",
       "image": "{{ product.cover_url }}",
       "description": "{{ product.short_desc | striptags }}",
-      "brand": {
-        "@type": "Brand",
-        "name": "RipperMods"
-      },
+      "brand": { "@type": "Brand", "name": "RipperMods" },
       "offers": {
         "@type": "Offer",
         "url": "https://rippermods.ir/product/{{ product.id }}",
         "priceCurrency": "IRR",
         "price": "{{ product.price }}",
-        "availability": "https://schema.org/InStock",
-        "itemCondition": "https://schema.org/NewCondition"
+        "availability": "https://schema.org/InStock"
       }
     }
     </script>
 
     <style>
-        /* تنظیمات پایه */
         body { font-family: 'Vazirmatn', sans-serif; background-color: #0f172a; color: #f8fafc; margin: 0; padding: 20px; }
         .container { max-width: 1100px; margin: 0 auto; }
         
-        /* --- گرید اصلی (چیدمان دو ستونه) --- */
-        .main-grid { 
-            display: grid; 
-            grid-template-columns: 1.2fr 1fr; /* ستون سمت راست کمی عریض‌تر (متن) */
-            grid-template-rows: auto auto; /* دو ردیف: ردیف اول عکس و متن، ردیف دوم ویدیو */
-            gap: 20px; 
-            margin-bottom: 20px; 
-        }
+        /* گرید اصلی */
+        .main-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 20px; margin-bottom: 20px; align-items: start; }
+        @media (max-width: 768px) { .main-grid { grid-template-columns: 1fr; } }
 
-        /* موبایل: تبدیل به یک ستونه */
-        @media (max-width: 768px) { 
-            .main-grid { grid-template-columns: 1fr; }
-            .box-video { grid-column: span 1 !important; }
-            .box-info { grid-column: span 1 !important; }
-            .box-image { grid-column: span 1 !important; }
-        }
-
-        /* استایل عمومی باکس‌ها */
-        .box { background-color: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 20px; box-sizing: border-box; display: flex; flex-direction: column; }
+        .box { background-color: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 20px; box-sizing: border-box; }
         
-        /* --- بلوک سبز (اطلاعات) --- */
-        .box-info { grid-column: 1 / 2; grid-row: 1 / 2; }
+        /* بلوک اطلاعات و خرید */
         .title { font-size: 22px; color: #06b6d4; margin-top: 0; margin-bottom: 15px; }
-        .short-desc { font-size: 14px; color: #cbd5e1; line-height: 1.8; flex-grow: 1; margin-bottom: 15px; }
+        .short-desc { font-size: 14px; color: #cbd5e1; line-height: 1.8; margin-bottom: 20px; }
         
-        /* باکس قیمت و خرید */
-        .buy-section { background-color: #0f172a; border-radius: 8px; padding: 15px; border: 1px solid #334155; margin-top: auto; }
+        .buy-section { background-color: #0f172a; border-radius: 8px; padding: 15px; border: 1px solid #334155; }
         .price-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; font-size: 14px; color: #94a3b8; }
-        .price-value { font-size: 20px; font-weight: bold; color: #ef4444; }
-        .buy-btn { width: 100%; padding: 12px; background-color: #ef4444; color: #fff; border: none; border-radius: 6px; font-family: inherit; font-weight: bold; font-size: 16px; cursor: pointer; transition: 0.3s; display: flex; justify-content: center; align-items: center; gap: 8px; }
+        .price-value { font-size: 22px; font-weight: bold; color: #ef4444; }
+        
+        .buy-btn { width: 100%; padding: 14px; background-color: #ef4444; color: #fff; border: none; border-radius: 6px; font-family: inherit; font-weight: bold; font-size: 16px; cursor: pointer; transition: 0.3s; display: flex; justify-content: center; align-items: center; gap: 8px; }
         .buy-btn:hover { background-color: #dc2626; }
         .buy-btn:disabled { background-color: #10b981; cursor: not-allowed; }
-        .base-link { display: block; text-align: center; font-size: 12px; color: #06b6d4; text-decoration: none; margin-top: 10px; }
+        .base-link { display: block; text-align: center; font-size: 13px; color: #06b6d4; text-decoration: none; margin-top: 15px; }
 
-        /* --- بلوک قرمز (عکس اصلی) --- */
-        .box-image { grid-column: 2 / 3; grid-row: 1 / 2; padding: 0; overflow: hidden; justify-content: center; align-items: center; background-color: #0f172a; border: 1px solid #334155; }
-        .box-image img { width: 100%; height: 100%; max-height: 400px; object-fit: cover; border-radius: 11px; }
+        /* بلوک عکس اصلی */
+        .image-box { padding: 0; overflow: hidden; background-color: #0f172a; display: flex; justify-content: center; align-items: center; min-height: 300px; }
+        .image-box img { width: 100%; height: auto; max-height: 450px; object-fit: contain; border-radius: 12px; }
 
-        /* --- بلوک آبی (ویدیو و نصب) --- */
-        .box-video { grid-column: 2 / 3; grid-row: 2 / 3; }
-        .box-video video { width: 100%; border-radius: 8px; outline: none; }
-        .video-placeholder { width: 100%; height: 200px; background-color: #0f172a; display: flex; align-items: center; justify-content: center; color: #64748b; border-radius: 8px; border: 1px dashed #334155; font-size: 14px; }
+        /* بخش گالری (بنفش) */
+        .gallery-box { margin-bottom: 20px; }
+        .gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; margin-top: 15px; }
+        .gallery-item { background-color: #0f172a; border-radius: 8px; overflow: hidden; border: 1px solid #334155; position: relative; }
+        .gallery-item img, .gallery-item video { width: 100%; height: 150px; object-fit: cover; display: block; cursor: pointer; }
+        
+        /* بخش آموزش نصب (آبی) */
+        .install-box { margin-bottom: 20px; }
+        .install-content { font-size: 15px; color: #cbd5e1; line-height: 1.9; }
+        .install-content strong { color: #06b6d4; }
 
-        /* --- بلوک بنفش (گالری) --- */
-        .box-gallery { margin-bottom: 20px; }
-        .gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; margin-top: 10px; }
-        .gallery-grid img { width: 100%; height: 120px; object-fit: cover; border-radius: 8px; border: 1px solid #334155; cursor: pointer; transition: 0.3s; }
-        .gallery-grid img:hover { border-color: #06b6d4; transform: scale(1.05); }
+        /* بخش توضیحات کامل (اختیاری) */
+        .full-desc-box { margin-bottom: 20px; }
+        .full-desc { color: #cbd5e1; line-height: 1.8; font-size: 15px; }
 
-        /* --- بلوک مشکی (نظرات) --- */
-        .box-reviews { text-align: center; color: #94a3b8; padding: 40px 20px; }
+        /* بخش نظرات (مشکی) */
+        .reviews-box { background-color: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 30px; text-align: center; color: #94a3b8; }
         
         h3 { color: #06b6d4; border-bottom: 1px solid #334155; padding-bottom: 10px; margin-top: 0; margin-bottom: 15px; font-size: 18px;}
     </style>
@@ -92,22 +76,18 @@
 <body>
     <div class="container">
         
-        <!-- گرید اصلی (متن و عکس و ویدیو) -->
+        <!-- چیدمان بالا (توضیحات + عکس) -->
         <div class="main-grid">
-            
-            <!-- بلوک سبز (راست) -->
-            <div class="box box-info">
+            <!-- اطلاعات و خرید -->
+            <div class="box">
                 <h2 class="title">{{ product.name }}</h2>
-                <!-- متن توضیحات (با پشتیبانی از HTML) -->
                 <div class="short-desc">{{ product.short_desc | safe if product.short_desc else 'توضیحات کوتاهی برای این محصول ثبت نشده است.' }}</div>
                 
-                <!-- باکس قیمت و خرید -->
                 <div class="buy-section">
                     <div class="price-row">
                         <span>قیمت محصول:</span>
                         <span class="price-value">{{ product.price }} تومان</span>
                     </div>
-                    
                     <form method="POST" action="{{ url_for('buy_product', pid=product.id) }}">
                         {% if has_bought %}
                             <button class="buy-btn" disabled>✅ شما این محصول را خریده‌اید</button>
@@ -118,13 +98,12 @@
                             </button>
                         {% endif %}
                     </form>
-                    
                     <a href="{{ base_link }}" class="base-link">⬇️ دانلود نسخه بیس بازی (رایگان)</a>
                 </div>
             </div>
 
-            <!-- بلوک قرمز (عکس اصلی) -->
-            <div class="box box-image">
+            <!-- عکس اصلی -->
+            <div class="box image-box">
                 {% if product.cover_url %}
                     <img src="{{ product.cover_url }}" alt="{{ product.name }}">
                 {% elif images %}
@@ -133,39 +112,55 @@
                     <div style="color: #64748b;">عکسی ثبت نشده است</div>
                 {% endif %}
             </div>
+        </div>
 
-            <!-- بلوک آبی (ویدیو نصب - سمت چپ پایین) -->
-            <div class="box box-video">
-                <h3>🎬 آموزش نصب و ویدیو معرفی</h3>
+        <!-- گالری تصاویر و ویدیو -->
+        <div class="box gallery-box">
+            <h3>🖼️ گالری تصاویر و ویدیو محصول</h3>
+            <div class="gallery-grid">
+                <!-- نمایش ویدیو به عنوان اولین آیتم گالری -->
                 {% if video_url %}
+                <div class="gallery-item">
                     <video controls>
                         <source src="{{ video_url }}" type="video/mp4">
                     </video>
-                {% else %}
-                    <div class="video-placeholder">ویدیوی آموزشی برای این محصول ثبت نشده است.</div>
-                {% endif %}
-            </div>
-            
-        </div> <!-- پایان گرید اصلی -->
-
-        <!-- بلوک بنفش (گالری) -->
-        <div class="box box-gallery">
-            <h3>🖼️ گالری تصاویر محصول</h3>
-            {% if images and images|length > 1 %}
-                <div class="gallery-grid">
-                    {% for img in images %}
-                        {% if not img.is_cover %}
-                            <img src="{{ img.image_url }}" alt="گالری {{ loop.index }}" onclick="window.open(this.src, '_blank')">
-                        {% endif %}
-                    {% endfor %}
                 </div>
-            {% else %}
-                <p style="color: #94a3b8;">تصویر دیگری برای این محصول ثبت نشده است.</p>
-            {% endif %}
+                {% endif %}
+                
+                <!-- نمایش عکس‌های گالری (به جز کاور) -->
+                {% for img in images %}
+                    {% if not img.is_cover %}
+                    <div class="gallery-item">
+                        <img src="{{ img.image_url }}" alt="گالری {{ loop.index }}" onclick="window.open(this.src, '_blank')">
+                    </div>
+                    {% endif %}
+                {% endfor %}
+            </div>
         </div>
 
-        <!-- بلوک مشکی (نظرات) -->
-        <div class="box box-reviews">
+        <!-- بخش آموزش نصب -->
+        <div class="box install-box">
+            <h3>🎮 آموزش نصب پک GTA V (نسخه PS4/PS5)</h3>
+            <div class="install-content">
+                <p>پکیج‌های فعلی صرفاً روی نسخه PS4 بازی کار می‌کنند و روش نصب پکیج روی PS4 و PS5 یکسان است. به محض ساخت نسخه PS5، آموزش نصب آن هم اضافه خواهد شد.</p>
+                <p><strong>1️⃣ بررسی نسخه:</strong> ابتدا از نسخه بیس بازی خود اطمینان حاصل کنید که با بیس پیشنهادی ما یکی باشد.</p>
+                <p><strong>2️⃣ دانلود:</strong> برنامه (WinRAR) را داشته باشید. فایل‌های مربوط به ماد را دانلود کنید.</p>
+                <p><strong>3️⃣ استخراج:</strong> همه فایل‌ها را در یک پوشه قرار دهید، سپس روی پارت ۱ کلیک راست کرده و Extract Here را انتخاب کنید (نیازی به کار با پارت‌های دیگر نیست، خودش اتوماتیک تشخیص می‌دهد). منتظر بمانید تا فایل اکسترکت شود.</p>
+                <p><strong>4️⃣ انتقال:</strong> وقتی فایل واحد .pkg ساخته شد، یک هارد اکسترنال یا فلش حداقل ۶۴ گیگ با فرمت exFAT به کامپیوتر وصل کنید و فایل را داخل آن کپی کنید.</p>
+                <p><strong>5️⃣ نصب روی کنسول:</strong> فلش را به کنسول وصل کنید. وارد مسیر Debug Settings / Package Installer شوید و فایل را نصب کنید.</p>
+            </div>
+        </div>
+
+        <!-- توضیحات کامل (اگر وجود داشته باشه) -->
+        {% if product.full_desc %}
+        <div class="box full-desc-box">
+            <h3>📝 توضیحات بیشتر</h3>
+            <div class="full-desc">{{ product.full_desc | safe }}</div>
+        </div>
+        {% endif %}
+
+        <!-- نظرات -->
+        <div class="reviews-box">
             <h3>💬 بخش نظرات و امتیازدهی</h3>
             <p>این بخش به زودی فعال می‌شود...</p>
         </div>
