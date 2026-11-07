@@ -16,7 +16,7 @@
                 {{ product.short_desc | safe if product.short_desc else 'توضیحات کوتاهی برای این محصول ثبت نشده است.' }}
             </div>
             
-            <!-- باکس قیمت و دکمه خرید (دکمه در انتها) -->
+            <!-- باکس قیمت و دکمه خرید -->
             <div style="background: var(--bg); border-radius: 10px; padding: 20px; border: 1px solid var(--line); margin-top: auto;">
                 <div class="flex justify-between items-center" style="margin-bottom: 20px; border-bottom: 1px solid var(--line); padding-bottom: 15px;">
                     <span style="color: var(--muted); font-size: 15px;">قیمت محصول:</span>
@@ -50,13 +50,12 @@
                 {% endif %}
             </div>
 
-            <!-- ویدیو (اگر وجود داشته باشد) -->
+            <!-- ویدیو -->
             {% if video_url %}
             <div class="card">
                 <h3 style="color: var(--red); margin-bottom: 15px; font-size: 18px;">🎬 ویدیو معرفی</h3>
                 <video controls style="width: 100%; border-radius: 8px; outline: none;">
                     <source src="{{ video_url }}" type="video/mp4">
-                    مرورگر شما از پخش ویدیو پشتیبانی نمی‌کند.
                 </video>
             </div>
             {% endif %}
@@ -70,7 +69,7 @@
             <div class="grid-3">
                 {% for img in images %}
                     {% if not img.is_cover %}
-                        <img src="{{ img.image_url }}" class="gallery-img" data-src="{{ img.image_url }}" alt="گالری {{ loop.index }}" style="width: 100%; height: 200px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); cursor: pointer; transition: 0.3s;" onmouseover="this.style.borderColor='var(--red)'" onmouseout="this.style.borderColor='var(--line)'">
+                        <img src="{{ img.image_url }}" class="gallery-img" data-src="{{ img.image_url }}" alt="گالری {{ loop.index }}" style="width: 100%; height: 200px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); cursor: pointer; transition: 0.3s;">
                     {% endif %}
                 {% endfor %}
             </div>
@@ -79,16 +78,16 @@
         {% endif %}
     </div>
 
-    <!-- بخش آموزش نصب -->
+    <!-- آموزش نصب -->
     <div class="card mb-4">
         <h3 style="color: var(--red); margin-bottom: 20px;">🎮 آموزش نصب پک GTA V (نسخه PS4/PS5)</h3>
         <div style="color: var(--muted); line-height: 2; font-size: 15px;">
-            <p>پکیج‌های فعلی صرفاً روی نسخه PS4 بازی کار می‌کنند و روش نصب پکیج روی PS4 و PS5 یکسان است. به محض ساخت نسخه PS5، آموزش نصب آن هم اضافه خواهد شد.</p>
-            <p style="margin-top: 10px;"><strong style="color: var(--white);">1️⃣ بررسی نسخه:</strong> ابتدا از نسخه بیس بازی خود اطمینان حاصل کنید که با بیس پیشنهادی ما یکی باشد.</p>
-            <p><strong style="color: var(--white);">2️⃣ دانلود:</strong> برنامه (WinRAR) را داشته باشید. فایل‌های مربوط به ماد را دانلود کنید.</p>
-            <p><strong style="color: var(--white);">3️⃣ استخراج:</strong> همه فایل‌ها را در یک پوشه قرار دهید، سپس روی پارت ۱ کلیک راست کرده و Extract Here را انتخاب کنید. منتظر بمانید تا فایل اکسترکت شود.</p>
-            <p><strong style="color: var(--white);">4️⃣ انتقال:</strong> وقتی فایل واحد .pkg ساخته شد، یک هارد اکسترنال یا فلش حداقل ۶۴ گیگ با فرمت exFAT به کامپیوتر وصل کنید و فایل را داخل آن کپی کنید.</p>
-            <p><strong style="color: var(--white);">5️⃣ نصب روی کنسول:</strong> فلش را به کنسول وصل کنید. وارد مسیر Debug Settings / Package Installer شوید و فایل را نصب کنید.</p>
+            <p>پکیج‌های فعلی صرفاً روی نسخه PS4 بازی کار می‌کنند و روش نصب پکیج روی PS4 و PS5 یکسان است.</p>
+            <p style="margin-top: 10px;"><strong style="color: var(--white);">1️⃣ بررسی نسخه:</strong> ابتدا از نسخه بیس بازی خود اطمینان حاصل کنید.</p>
+            <p><strong style="color: var(--white);">2️⃣ دانلود:</strong> برنامه (WinRAR) را داشته باشید.</p>
+            <p><strong style="color: var(--white);">3️⃣ استخراج:</strong> روی پارت ۱ کلیک راست کرده و Extract Here را انتخاب کنید.</p>
+            <p><strong style="color: var(--white);">4️⃣ انتقال:</strong> فایل .pkg را روی فلش exFAT کپی کنید.</p>
+            <p><strong style="color: var(--white);">5️⃣ نصب:</strong> فلش را به کنسول وصل کرده و از مسیر Debug Settings / Package Installer نصب کنید.</p>
         </div>
     </div>
 
@@ -102,13 +101,12 @@
 
 </section>
 
-<!-- مودال (پاپ‌آپ) عکس -->
+<!-- مودال پاپ‌آپ عکس -->
 <div id="imageModal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 1000; justify-content: center; align-items: center; backdrop-filter: blur(5px);">
     <span id="closeModal" style="position: absolute; top: 20px; right: 35px; color: #fff; font-size: 40px; font-weight: bold; cursor: pointer;">&times;</span>
     <img id="modalImg" style="max-width: 90%; max-height: 90vh; object-fit: contain; border-radius: 8px; box-shadow: 0 0 30px rgba(241, 39, 53, 0.5);">
 </div>
 
-<!-- اسکریپت پاپ‌آپ -->
 <script>
 document.addEventListener("DOMContentLoaded", function() {
     var modal = document.getElementById("imageModal");
