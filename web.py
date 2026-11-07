@@ -58,12 +58,19 @@ def init_db():
                 # ۲. حذف کلیدهای خارجی قدیمی (برای اینکه بتونیم رکوردها رو پاک کنیم)
                 cur.execute("ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_user_id_fkey")
                 cur.execute("ALTER TABLE link_codes DROP CONSTRAINT IF EXISTS link_codes_telegram_id_fkey")
+                cur.execute("ALTER TABLE coupon_uses DROP CONSTRAINT IF EXISTS coupon_uses_order_id_fkey")
 
-                # ۳. پاک کردن تمام رکوردهای orders و link_codes که کاربرشون توی site_users نیست
+                # ۳. پاک کردن رکوردهای coupon_uses که به سفارش‌های نامعتبر وصلن
+                cur.execute("""
+                    DELETE FROM coupon_uses 
+                    WHERE order_id NOT IN (SELECT id FROM orders WHERE user_id IN (SELECT id FROM site_users))
+                """)
+
+                # ۴. پاک کردن رکوردهای orders و link_codes که کاربرشون توی site_users نیست
                 cur.execute("DELETE FROM orders WHERE user_id NOT IN (SELECT id FROM site_users)")
                 cur.execute("DELETE FROM link_codes WHERE telegram_id NOT IN (SELECT id FROM site_users)")
 
-                # ۴. اضافه کردن مجدد کلیدهای خارجی، ولی اینبار به site_users
+                # ۵. اضافه کردن مجدد کلیدهای خارجی، ولی اینبار به site_users
                 cur.execute("""
                     ALTER TABLE orders 
                     ADD CONSTRAINT orders_user_id_fkey 
@@ -75,13 +82,13 @@ def init_db():
                     FOREIGN KEY (telegram_id) REFERENCES site_users(id) ON DELETE CASCADE
                 """)
 
-                # ۵. اضافه کردن ستون‌های جدید به جدول محصولات و سفارش‌ها
+                # ۶. اضافه کردن ستون‌های جدید
                 cur.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS short_desc TEXT")
                 cur.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS full_desc TEXT")
                 cur.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS video_url TEXT")
                 cur.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS receipt_image_base64 TEXT")
 
-                # ۶. ساخت جداول جانبی
+                # ۷. ساخت جداول جانبی
                 cur.execute("""CREATE TABLE IF NOT EXISTS product_images (
                     id BIGSERIAL PRIMARY KEY,
                     product_id BIGINT REFERENCES products(id) ON DELETE CASCADE,
@@ -99,7 +106,7 @@ def init_db():
                     replied_at TIMESTAMPTZ
                 )""")
 
-                # ۷. اضافه کردن کاور پیش‌فرض
+                # ۸. اضافه کردن کاور پیش‌فرض
                 cur.execute("SELECT id, name FROM products")
                 prods = cur.fetchall()
                 for p in prods:
