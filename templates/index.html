@@ -1,17 +1,45 @@
 {% extends "base.html" %}
 
-{% block title %}RipperMods | مرجع مود و پک‌های GTA V{% endblock %}
+{% block title %}RipperMods | مرجع پک‌های GTA V{% endblock %}
 
 {% block content %}
+<!-- ستاره‌های پس‌زمینه -->
+<div class="stars-bg"></div>
+
+<!-- ماشین اسپرت نئونی (SVG) در حال حرکت -->
+<div class="car-animation">
+    <svg width="120" height="60" viewBox="0 0 120 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M10 40 L20 25 L35 20 L75 20 L90 25 L110 35 L110 45 L10 45 Z" fill="#f12735" opacity="0.8"/>
+        <path d="M35 20 L45 10 L65 10 L75 20 Z" fill="#101116" stroke="#f12735" stroke-width="2"/>
+        <circle cx="30" cy="45" r="8" fill="#101116" stroke="#f12735" stroke-width="2"/>
+        <circle cx="90" cy="45" r="8" fill="#101116" stroke="#f12735" stroke-width="2"/>
+        <rect x="15" y="35" width="10" height="5" fill="#ffc44d" opacity="0.8"/>
+        <rect x="95" y="35" width="10" height="5" fill="#ffc44d" opacity="0.8"/>
+    </svg>
+</div>
+
+<!-- کاراکتر انیمه/سایبرپانک (SVG) -->
+<div class="anime-character">
+    <svg width="100" height="150" viewBox="0 0 100 150" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="50" cy="30" r="20" fill="#f12735" opacity="0.8"/>
+        <path d="M30 50 L70 50 L80 100 L20 100 Z" fill="#101116" stroke="#f12735" stroke-width="3"/>
+        <path d="M35 100 L35 140 L45 140 L45 100" fill="#f12735"/>
+        <path d="M55 100 L55 140 L65 140 L65 100" fill="#f12735"/>
+        <circle cx="40" cy="25" r="3" fill="#fff"/>
+        <circle cx="60" cy="25" r="3" fill="#fff"/>
+        <path d="M45 40 Q50 45 55 40" stroke="#fff" stroke-width="2" fill="none"/>
+    </svg>
+</div>
+
 <!-- Hero Section -->
 <section class="hero">
     <div class="wrap" style="text-align: center;">
         <div class="eyebrow" style="margin-bottom: 20px;">
             <span style="display: inline-block; width: 8px; height: 8px; background: var(--red); border-radius: 50%; box-shadow: 0 0 12px var(--red);"></span>
-            مرجع تخصصی مودهای GTA V
+            مرجع تخصصی پک‌های GTA V
         </div>
-        <h1>دنیای بازی‌ات را<br><span>متفاوت تجربه کن.</span></h1>
-        <p style="margin: 0 auto 30px;">بهترین پک‌های GTA V با کیفیت و پشتیبانی بالا. ماشین‌های ایرانی، ماد منیو و فارسی‌سازی، همه در یک پکیج اختصاصی.</p>
+        <h1 class="typewriter">دنیای بازی‌ات را متفاوت تجربه کن.</h1>
+        <p style="margin: 20px auto 30px; max-width: 600px;">بهترین پک‌های GTA V با کیفیت و پشتیبانی بالا. ماشین‌های ایرانی، ماد منیو و فارسی‌سازی، همه در یک پکیج اختصاصی.</p>
         
         <div class="flex items-center justify-between gap-2" style="justify-content: center;">
             <a href="#products" class="btn btn-primary"><i class="fa-solid fa-bag-shopping"></i> مشاهده محصولات</a>
@@ -52,7 +80,18 @@
     </div>
 </section>
 
-<!-- FAQ Section (سوالات متداول) -->
+<!-- About Section: پک GTA V چیست؟ -->
+<section class="wrap mb-4" style="padding-top: 40px;">
+    <div class="card" style="max-width: 900px; margin: 0 auto;">
+        <h2 style="font-size: 28px; text-align: center; margin-bottom: 20px; color: var(--red);">پک GTA V چیست و چرا مهم است؟</h2>
+        <div style="color: var(--muted); font-size: 15px; line-height: 2; text-align: justify;">
+            <p>پک GTA V مجموعه‌ای از مودها، ماشین‌های ایرانی، ماد منیو و فارسی‌سازی است که تجربه بازی شما را کاملاً متحول می‌کند. با نصب این پک، می‌توانید در شهر لس سانتوس با ماشین‌های ایرانی رانندگی کنید، از منوهای فارسی استفاده کنید و از امکانات جدید لذت ببرید.</p>
+            <p style="margin-top: 15px;">پک‌های RipperMods به گونه‌ای طراحی شده‌اند که بدون نیاز به هیچ پلاگین اضافه‌ای، به راحتی روی کنسول PS4 و PS5 نصب شوند. ما تمام مراحل نصب را برای شما ساده کرده‌ایم و پشتیبانی ۲۴ ساعته در کنار شما هستیم.</p>
+        </div>
+    </div>
+</section>
+
+<!-- FAQ Section -->
 <section class="wrap mb-4" style="margin-top: 60px;">
     <h2 style="font-size: 28px; text-align: center; margin-bottom: 30px;">سوالات متداول</h2>
     <div style="display: flex; flex-direction: column; gap: 15px; max-width: 800px; margin: 0 auto;">
@@ -64,23 +103,18 @@
 
         <details class="card" style="cursor: pointer;">
             <summary style="font-weight: bold; font-size: 16px;">آیا نسخه بیس بازی رایگان است؟</summary>
-            <p style="color: var(--muted); margin-top: 15px; font-size: 14px; line-height: 1.8;">بله، شما می‌توانید نسخه بیس بازی را از دکمه بالای صفحه به صورت رایگان دانلود کنید. برای استفاده از پک‌ها، حتماً باید نسخه بازی شما با این نسخه بیس هماهنگ باشد.</p>
+            <p style="color: var(--muted); margin-top: 15px; font-size: 14px; line-height: 1.8;">بله، شما می‌توانید نسخه بیس بازی را از دکمه بالای صفحه به صورت رایگان دانلود کنید.</p>
         </details>
 
         <details class="card" style="cursor: pointer;">
             <summary style="font-weight: bold; font-size: 16px;">چطور مودها را روی PS4 نصب کنم؟</summary>
-            <p style="color: var(--muted); margin-top: 15px; font-size: 14px; line-height: 1.8;">پس از دانلود فایل‌ها و استخراج آن‌ها با WinRAR، فایل .pkg به دست آمده را روی یک فلش با فرمت exFAT کپی کنید. فلش را به کنسول وصل کرده و از مسیر Debug Settings / Package Installer نصب کنید.</p>
-        </details>
-
-        <details class="card" style="cursor: pointer;">
-            <summary style="font-weight: bold; font-size: 16px;">آیا پشتیبانی دارید؟</summary>
-            <p style="color: var(--muted); margin-top: 15px; font-size: 14px; line-height: 1.8;">بله، تیم پشتیبانی RipperMods به صورت ۲۴ ساعته از طریق تلگرام و بخش پشتیبانی سایت آماده پاسخگویی به شماست.</p>
+            <p style="color: var(--muted); margin-top: 15px; font-size: 14px; line-height: 1.8;">پس از دانلود فایل‌ها و استخراج آن‌ها با WinRAR، فایل .pkg را روی فلش exFAT کپی کرده و از مسیر Debug Settings / Package Installer نصب کنید.</p>
         </details>
 
     </div>
 </section>
 
-<!-- Features Section (چرا ما؟) -->
+<!-- Features Section -->
 <section class="wrap mb-4" style="padding-top: 40px;">
     <h2 style="font-size: 28px; text-align: center; margin-bottom: 30px;">چرا RipperMods؟</h2>
     <div class="grid-3">
