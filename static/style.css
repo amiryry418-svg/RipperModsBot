@@ -32,6 +32,17 @@ body::before {
     z-index: -1;
 }
 
+/* --- مخفی کردن کامل ماشین و کاراکتر --- */
+.car-animation, 
+.anime-character,
+.ripper-character {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    width: 0 !important;
+    height: 0 !important;
+}
+
 /* --- ستاره‌های پس‌زمینه --- */
 @keyframes moveStars {
     from { transform: translateY(0); }
@@ -85,9 +96,10 @@ a { color: inherit; text-decoration: none; transition: 0.3s; }
 }
 
 @keyframes typing {
-    from { width: 0 }
-    to { width: 100% }
+    from { max-width: 0 }
+    to { max-width: 100% }
 }
+
 @keyframes blink-caret {
     from, to { border-color: transparent }
     50% { border-color: var(--red); }
@@ -150,12 +162,14 @@ a { color: inherit; text-decoration: none; transition: 0.3s; }
 .hero h1 span { color: var(--red); text-shadow: 0 0 35px #f127352b; }
 .hero p { color: var(--muted); font-size: 16px; max-width: 600px; margin-bottom: 25px; }
 
+/* --- افکت تایپ (اصلاح شده) --- */
 .typewriter {
     overflow: hidden;
-    border-left: 4px solid var(--red);
-    white-space: nowrap;
+    border-left: 4px solid var(--red); /* خط عمودی سمت چپ */
+    display: inline-block;
+    white-space: nowrap; /* جلوگیری از شکستن خط */
     margin: 0 auto;
-    letter-spacing: .15em;
+    letter-spacing: .1em;
     animation: 
         typing 3.5s steps(40, end),
         blink-caret .75s step-end infinite;
@@ -265,13 +279,4 @@ footer { border-top: 1px solid var(--line); padding: 25px 0; color: var(--muted)
     
     .hero { padding: 30px 0; }
     .hero h1 { font-size: 32px; }
-}
-/* --- مخفی کردن کامل ماشین و کاراکتر --- */
-.car-animation, 
-.anime-character {
-    display: none !important;
-    visibility: hidden !important;
-    opacity: 0 !important;
-    width: 0 !important;
-    height: 0 !important;
 }
