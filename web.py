@@ -166,11 +166,11 @@ def product_detail(pid):
             
             has_bought = False
             if 'site_user_id' in session:
-                cur.execute("SELECT 1 FROM orders WHERE user_id=(SELECT id FROM site_users WHERE id=%s) AND product_id=%s AND status IN ('approved','delivered')", (session['site_user_id'], pid))
+                cur.execute("SELECT 1 FROM orders WHERE user_id=%s AND product_id=%s AND status IN ('approved','delivered')", (session['site_user_id'], pid))
                 has_bought = cur.fetchone() is not None
             
-    video_url = None
-    if 'سوپر' in product['name'] or 'super' in product['name'].lower():
+    video_url = product.get('video_url')
+    if not video_url and ('سوپر' in product['name'] or 'super' in product['name'].lower()):
         video_url = "https://s21.uupload.ir/files/rippermodsgtavv100/Amir/4/VID_20261101_150016_007.mp4?play"
         
     return render_template('product.html', product=product, images=images, base_link=BASE_LINK, video_url=video_url, has_bought=has_bought)
@@ -342,9 +342,8 @@ def buy_product(pid):
         
     with get_db() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT id FROM site_users WHERE id=%s", (session['site_user_id'],))
-            user = cur.fetchone()
-            uid = user['id']
+            # اینجا دیگه نیازی به چک کردن جدول site_users نیست چون session داره
+            uid = session['site_user_id']
             
             cur.execute("SELECT 1 FROM orders WHERE user_id=%s AND product_id=%s AND status IN ('approved','delivered')", (uid, pid))
             if cur.fetchone():
@@ -481,6 +480,9 @@ def admin_update_product(pid):
     new_link = request.form.get('link')
     new_cover = request.form.get('cover')
     new_gallery = request.form.get('gallery')
+    new_short_desc = request.form.get('short_desc')
+    new_full_desc = request.form.get('full_desc')
+    new_video_url = request.form.get('video_url')
     
     with get_db() as conn:
         with conn.cursor() as cur:
@@ -493,6 +495,16 @@ def admin_update_product(pid):
                     cur.execute("UPDATE product_links SET link=%s WHERE id=%s", (new_link, row['id']))
                 else:
                     cur.execute("INSERT INTO product_links (product_id, link) VALUES (%s, %s)", (pid, new_link))
+            
+            # آپدیت توضیحات و ویدیو
+            cur.execute("""
+                UPDATE products 
+                SET short_desc = COALESCE(%s, short_desc),
+                    full_desc = COALESCE(%s, full_desc),
+                    video_url = COALESCE(%s, video_url)
+                WHERE id = %s
+            """, (new_short_desc, new_full_desc, new_video_url, pid))
+
             if new_cover:
                 cur.execute("UPDATE product_images SET is_cover=false WHERE product_id=%s", (pid,))
                 cur.execute("INSERT INTO product_images (product_id, image_url, is_cover) VALUES (%s, %s, true)", (pid, new_cover))
