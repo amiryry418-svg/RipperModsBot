@@ -5,18 +5,22 @@
 {% block content %}
 <section class="wrap mt-4 mb-4">
     
-    <!-- خوش آمدگویی و اطلاعات کاربر -->
+    <!-- کارت پروفایل کاربر -->
     <div class="card mb-4" style="background: linear-gradient(145deg, #15161d, #101116); border-right: 4px solid var(--red);">
-        <div class="flex justify-between items-center" style="flex-wrap: wrap; gap: 15px;">
-            <div>
-                <h2 style="margin-bottom: 5px;">خوش آمدید، {{ user.full_name }} 👋</h2>
-                <p style="color: var(--muted); font-size: 13px;">
-                    <i class="fa-solid fa-phone"></i> {{ user.phone }} | 
-                    <i class="fa-solid fa-envelope"></i> {{ user.email or 'ایمیل ثبت نشده' }}
-                </p>
+        <div class="flex justify-between items-center" style="flex-wrap: wrap; gap: 20px;">
+            <div style="display: flex; align-items: center; gap: 15px;">
+                <div style="width: 60px; height: 60px; background: var(--bg); border-radius: 50%; display: grid; place-items: center; border: 2px solid var(--red);">
+                    <i class="fa-solid fa-user" style="font-size: 24px; color: var(--red);"></i>
+                </div>
+                <div>
+                    <h2 style="margin-bottom: 5px; font-size: 20px;">خوش آمدید، {{ user.full_name }} 👋</h2>
+                    <p style="color: var(--muted); font-size: 13px;">
+                        <i class="fa-solid fa-envelope"></i> {{ user.email or 'ایمیل ثبت نشده' }}
+                    </p>
+                </div>
             </div>
-            <div style="text-align: left;">
-                <span class="badge badge-success" style="font-size: 13px; padding: 8px 15px;">
+            <div>
+                <span class="badge badge-success" style="font-size: 12px; padding: 8px 15px;">
                     <i class="fa-solid fa-check-circle"></i> حساب تایید شده
                 </span>
             </div>
@@ -38,77 +42,65 @@
                         <a href="/#products" class="btn btn-secondary mt-2">مشاهده فروشگاه</a>
                     </div>
                 {% else %}
-                    <div class="table-responsive">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>محصول</th>
-                                    <th>مبلغ</th>
-                                    <th>وضعیت</th>
-                                    <th>عملیات</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for o in orders %}
-                                <tr>
-                                    <td>
-                                        <strong>{{ o.product_name }}</strong><br>
-                                        <small style="color: var(--muted);">{{ o.tracking_code or '—' }}</small>
-                                    </td>
-                                    <td>{{ "{:,}".format(o.amount|int) }}</td>
-                                    <td>
-                                        {% if o.status == 'delivered' %}
-                                            <span class="badge badge-success">تحویل شده</span>
-                                        {% elif o.status == 'approved' %}
-                                            <span class="badge badge-success" style="background: #3b82f61a; color: #60a5fa; border-color: #3b82f644;">تایید شده</span>
-                                        {% elif o.status == 'pending' %}
-                                            <span class="badge badge-warning">در انتظار</span>
-                                        {% elif o.status == 'rejected' %}
-                                            <span class="badge" style="background: #ef44441a; color: #f87171; border-color: #ef444444;">رد شده</span>
-                                        {% else %}
-                                            <span class="badge">{{ o.status }}</span>
-                                        {% endif %}
-                                    </td>
-                                    <td>
-                                        {% if o.status in ['delivered', 'approved'] %}
-                                            {% if o.link_expires_at %}
-                                                {% if o.is_expired %}
-                                                    <span style="font-size: 11px; color: #f87171; display: block; margin-bottom: 5px;">لینک منقضی شده</span>
-                                                {% endif %}
-                                            {% endif %}
-                                            <a href="/redownload/{{ o.product_id }}" class="btn btn-secondary" style="padding: 5px 10px; min-height: 30px; font-size: 11px;">
-                                                <i class="fa-solid fa-rotate-right"></i> دریافت مجدد
-                                            </a>
-                                        {% else %}
-                                            <span style="color: var(--muted); font-size: 11px;">—</span>
-                                        {% endif %}
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
+                    {% for o in orders %}
+                    <div style="background: #090a0e; padding: 15px; border-radius: 10px; margin-bottom: 15px; border: 1px solid var(--line);">
+                        <div class="flex justify-between items-center" style="margin-bottom: 10px;">
+                            <strong>{{ o.product_name }}</strong>
+                            <span class="badge 
+                                {% if o.status == 'delivered' or o.status == 'approved' %}badge-success
+                                {% elif o.status == 'pending' %}badge-warning
+                                {% else %}badge-error{% endif %}">
+                                {{ o.status }}
+                            </span>
+                        </div>
+                        <div style="font-size: 13px; color: var(--muted); margin-bottom: 10px;">
+                            مبلغ: {{ "{:,}".format(o.amount|int) }} تومان | کد: {{ o.tracking_code or '—' }}
+                        </div>
+                        
+                        <!-- نمایش لینک‌های دانلود اختصاصی این سفارش -->
+                        {% if o.download_links %}
+                            {% if o.is_expired %}
+                                <div class="alert alert-error" style="padding: 10px; font-size: 12px; margin-bottom: 10px;">
+                                    <i class="fa-solid fa-triangle-exclamation"></i> لینک‌های این سفارش منقضی شده‌اند. برای دریافت مجدد با پشتیبانی تماس بگیرید.
+                                </div>
+                            {% else %}
+                                <div class="alert alert-success" style="padding: 10px; font-size: 12px; margin-bottom: 10px;">
+                                    <i class="fa-solid fa-clock"></i> اعتبار لینک‌ها: تا ۵ روز دیگر
+                                </div>
+                                <div style="display: flex; flex-direction: column; gap: 8px;">
+                                    {% for link in o.download_links %}
+                                        <a href="{{ link }}" target="_blank" class="btn btn-primary btn-block" style="font-size: 13px; padding: 10px;">
+                                            <i class="fa-solid fa-download"></i> دانلود پارت {{ loop.index }}
+                                        </a>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+                        {% elif o.status == 'pending' %}
+                            <p style="font-size: 12px; color: #ffc44d;">در انتظار تایید ادمین...</p>
+                        {% elif o.status == 'rejected' %}
+                            <p style="font-size: 12px; color: #ff4d6d;">سفارش شما رد شده است.</p>
+                        {% endif %}
                     </div>
+                    {% endfor %}
                 {% endif %}
             </div>
         </div>
 
-        <!-- ستون پشتیبانی و تیکت -->
+        <!-- ستون پشتیبانی -->
         <div>
             <div class="card" style="height: 100%;">
                 <h3 style="margin-bottom: 20px; border-bottom: 1px solid var(--line); padding-bottom: 15px;">
                     <i class="fa-solid fa-headset" style="color: var(--red);"></i> پشتیبانی
                 </h3>
 
-                <!-- فرم ارسال تیکت جدید -->
                 <form method="POST" action="/ticket/new" style="margin-bottom: 25px;">
                     <div class="form-group">
-                        <label for="message">ارسال پیام جدید به پشتیبانی</label>
+                        <label for="message">ارسال پیام جدید</label>
                         <textarea id="message" name="message" class="form-control" placeholder="مشکل یا سوال خود را بنویسید..." required style="height: 100px;"></textarea>
                     </div>
                     <button type="submit" class="btn btn-primary btn-block"><i class="fa-solid fa-paper-plane"></i> ارسال تیکت</button>
                 </form>
 
-                <!-- لیست تیکت‌های قبلی -->
                 <h4 style="font-size: 14px; margin-bottom: 15px;">تیکت‌های اخیر:</h4>
                 {% if not tickets %}
                     <p style="color: var(--muted); font-size: 12px;">تیکتی ثبت نکرده‌اید.</p>
@@ -116,14 +108,11 @@
                     {% for t in tickets %}
                     <div style="background: #090a0e; padding: 12px; border-radius: 10px; margin-bottom: 10px; border: 1px solid var(--line);">
                         <div style="font-size: 12px; margin-bottom: 5px;">{{ t.message }}</div>
-                        
                         {% if t.reply %}
                             <div style="background: #1a1012; padding: 8px; border-radius: 6px; margin-top: 8px; border-right: 2px solid var(--red);">
                                 <span style="font-size: 11px; color: var(--red); font-weight: bold; display: block; margin-bottom: 3px;">پاسخ پشتیبانی:</span>
                                 <span style="font-size: 12px; color: #ddd;">{{ t.reply }}</span>
                             </div>
-                        {% else %}
-                            <div style="font-size: 11px; color: #ffc44d; margin-top: 5px;"><i class="fa-solid fa-clock"></i> در انتظار پاسخ...</div>
                         {% endif %}
                     </div>
                     {% endfor %}
