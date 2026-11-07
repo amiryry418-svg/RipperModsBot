@@ -93,7 +93,6 @@ a { color: inherit; text-decoration: none; transition: 0.3s; }
     50% { border-color: var(--red); }
 }
 
-/* --- انیمیشن جدید: درخشش روی قیمت --- */
 @keyframes priceGlow {
     0% { text-shadow: 0 0 5px var(--red-glow); }
     50% { text-shadow: 0 0 20px var(--red), 0 0 10px var(--red); }
@@ -151,7 +150,6 @@ a { color: inherit; text-decoration: none; transition: 0.3s; }
 .hero h1 span { color: var(--red); text-shadow: 0 0 35px #f127352b; }
 .hero p { color: var(--muted); font-size: 16px; max-width: 600px; margin-bottom: 25px; }
 
-/* --- افکت تایپ --- */
 .typewriter {
     overflow: hidden;
     border-left: 4px solid var(--red);
@@ -244,12 +242,27 @@ footer { border-top: 1px solid var(--line); padding: 25px 0; color: var(--muted)
 /* --- Responsive --- */
 @media (max-width: 768px) {
     .grid-2 { grid-template-columns: 1fr; }
-    .navlinks { display: none; }
-    .nav { min-height: 66px; }
+    
+    /* هدر روی موبایل */
+    .nav { 
+        flex-wrap: wrap; 
+        padding: 10px 0; 
+        justify-content: center;
+        gap: 10px;
+    }
+    
+    .navlinks { 
+        display: flex; 
+        width: 100%; 
+        overflow-x: auto; 
+        gap: 15px;
+        justify-content: center;
+        padding-bottom: 5px;
+        -webkit-overflow-scrolling: touch;
+    }
+    .navlinks::-webkit-scrollbar { display: none; }
+    .navlinks a { font-size: 13px; white-space: nowrap; }
+    
     .hero { padding: 30px 0; }
     .hero h1 { font-size: 32px; }
-}
-/* حذف کامل ماشین و کاراکتر */
-.car-animation, .anime-character {
-    display: none !important;
 }
