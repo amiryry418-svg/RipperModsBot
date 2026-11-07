@@ -24,7 +24,6 @@ body {
     direction: rtl;
 }
 
-/* --- پس‌زمینه سینمایی --- */
 body::before {
     content: "";
     position: fixed; inset: 0; pointer-events: none;
@@ -92,6 +91,13 @@ a { color: inherit; text-decoration: none; transition: 0.3s; }
 @keyframes blink-caret {
     from, to { border-color: transparent }
     50% { border-color: var(--red); }
+}
+
+/* --- انیمیشن جدید: درخشش روی قیمت --- */
+@keyframes priceGlow {
+    0% { text-shadow: 0 0 5px var(--red-glow); }
+    50% { text-shadow: 0 0 20px var(--red), 0 0 10px var(--red); }
+    100% { text-shadow: 0 0 5px var(--red-glow); }
 }
 
 /* --- Header (شیشه‌ای) --- */
@@ -184,8 +190,8 @@ a { color: inherit; text-decoration: none; transition: 0.3s; }
 .product-card:hover .product-cover { transform: scale(1.05); }
 .product-title { font-size: 20px; margin-bottom: 8px; }
 .product-desc { color: var(--muted); font-size: 13px; flex-grow: 1; margin-bottom: 15px; white-space: pre-line; }
-.product-price { font-size: 22px; font-weight: 900; color: var(--white); }
-.product-price span { font-size: 13px; color: var(--red); font-weight: normal; }
+.product-price { font-size: 22px; font-weight: 900; color: var(--white); animation: priceGlow 2s infinite; }
+.product-price span { font-size: 13px; color: var(--red); font-weight: normal; animation: none; }
 
 /* --- Forms --- */
 .form-group { margin-bottom: 18px; }
