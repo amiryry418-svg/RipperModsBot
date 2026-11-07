@@ -192,3 +192,87 @@ footer { border-top: 1px solid var(--line); padding: 25px 0; color: var(--muted)
     .hero { padding: 30px 0; }
     .hero h1 { font-size: 32px; }
 }
+/* ==================================================== */
+/* --- انیمیشن‌های خفن سایبرپانک --- */
+/* ==================================================== */
+
+/* ۱. ماشین اسپرت نئونی */
+@keyframes driveCar {
+    0% { transform: translateX(-100vw) scaleX(1); }
+    100% { transform: translateX(100vw) scaleX(1); }
+}
+
+.car-animation {
+    position: fixed;
+    bottom: 30px;
+    left: 0;
+    z-index: 50;
+    animation: driveCar 15s linear infinite;
+    filter: drop-shadow(0 0 15px var(--red));
+    pointer-events: none;
+}
+
+/* ۲. کاراکتر انیمه/سایبرپانک */
+@keyframes hoverCharacter {
+    0% { transform: translateY(0) rotate(0deg); }
+    50% { transform: translateY(-15px) rotate(2deg); }
+    100% { transform: translateY(0) rotate(0deg); }
+}
+
+.anime-character {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 50;
+    animation: hoverCharacter 4s ease-in-out infinite;
+    filter: drop-shadow(0 0 20px var(--red));
+    pointer-events: none;
+    opacity: 0.8;
+}
+
+/* ۳. ستاره‌های در حال حرکت */
+@keyframes moveStars {
+    from { transform: translateY(0); }
+    to { transform: translateY(-2000px); }
+}
+
+.stars-bg {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 200vh;
+    background-image: 
+        radial-gradient(2px 2px at 20px 30px, var(--red), rgba(0,0,0,0)),
+        radial-gradient(2px 2px at 40px 70px, var(--red), rgba(0,0,0,0)),
+        radial-gradient(1px 1px at 50px 160px, var(--red), rgba(0,0,0,0)),
+        radial-gradient(2px 2px at 90px 40px, var(--red), rgba(0,0,0,0)),
+        radial-gradient(1px 1px at 130px 80px, var(--red), rgba(0,0,0,0));
+    background-repeat: repeat;
+    background-size: 200px 200px;
+    animation: moveStars 20s linear infinite;
+    opacity: 0.3;
+    z-index: -2;
+    pointer-events: none;
+}
+
+/* ۴. افکت تایپ */
+.typewriter {
+    overflow: hidden;
+    border-left: 4px solid var(--red);
+    white-space: nowrap;
+    margin: 0 auto;
+    letter-spacing: .15em;
+    animation: 
+        typing 3.5s steps(40, end),
+        blink-caret .75s step-end infinite;
+}
+
+@keyframes typing {
+    from { width: 0 }
+    to { width: 100% }
+}
+@keyframes blink-caret {
+    from, to { border-color: transparent }
+    50% { border-color: var(--red); }
+}
