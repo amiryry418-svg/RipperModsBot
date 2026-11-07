@@ -2,8 +2,8 @@
 
 :root {
     --bg: #08090c;
-    --panel: #111217;
-    --panel2: #17181f;
+    --panel: rgba(17, 18, 23, 0.8);
+    --panel2: rgba(23, 24, 31, 0.9);
     --red: #f12735;
     --red-glow: #f1273588;
     --white: #f6f4f4;
@@ -24,12 +24,39 @@ body {
     direction: rtl;
 }
 
+/* --- پس‌زمینه سینمایی --- */
 body::before {
     content: "";
     position: fixed; inset: 0; pointer-events: none;
     background: radial-gradient(ellipse at 15% 0%, #9d10251e, transparent 38%),
                 radial-gradient(ellipse at 100% 55%, #d51a2510, transparent 34%);
     z-index: -1;
+}
+
+/* --- ستاره‌های پس‌زمینه --- */
+@keyframes moveStars {
+    from { transform: translateY(0); }
+    to { transform: translateY(-2000px); }
+}
+
+.stars-bg {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 200vh;
+    background-image: 
+        radial-gradient(2px 2px at 20px 30px, var(--red), rgba(0,0,0,0)),
+        radial-gradient(2px 2px at 40px 70px, var(--red), rgba(0,0,0,0)),
+        radial-gradient(1px 1px at 50px 160px, var(--red), rgba(0,0,0,0)),
+        radial-gradient(2px 2px at 90px 40px, var(--red), rgba(0,0,0,0)),
+        radial-gradient(1px 1px at 130px 80px, var(--red), rgba(0,0,0,0));
+    background-repeat: repeat;
+    background-size: 200px 200px;
+    animation: moveStars 20s linear infinite;
+    opacity: 0.3;
+    z-index: -2;
+    pointer-events: none;
 }
 
 a { color: inherit; text-decoration: none; transition: 0.3s; }
@@ -47,10 +74,30 @@ a { color: inherit; text-decoration: none; transition: 0.3s; }
     100% { transform: translateY(0px); }
 }
 
-/* --- Header --- */
+@keyframes pulseGlow {
+    0% { box-shadow: 0 0 10px var(--red-glow); }
+    50% { box-shadow: 0 0 30px var(--red); }
+    100% { box-shadow: 0 0 10px var(--red-glow); }
+}
+
+@keyframes cardEntrance {
+    0% { opacity: 0; transform: perspective(1000px) rotateY(-30deg) translateY(50px); }
+    100% { opacity: 1; transform: perspective(1000px) rotateY(0deg) translateY(0); }
+}
+
+@keyframes typing {
+    from { width: 0 }
+    to { width: 100% }
+}
+@keyframes blink-caret {
+    from, to { border-color: transparent }
+    50% { border-color: var(--red); }
+}
+
+/* --- Header (شیشه‌ای) --- */
 .topbar {
     position: sticky; top: 0; z-index: 100;
-    background: #08090ce8; backdrop-filter: blur(16px);
+    background: rgba(8, 9, 12, 0.6); backdrop-filter: blur(20px);
     border-bottom: 1px solid var(--line);
 }
 .nav { display: flex; align-items: center; justify-content: space-between; gap: 20px; min-height: 76px; }
@@ -59,8 +106,8 @@ a { color: inherit; text-decoration: none; transition: 0.3s; }
     display: grid; place-items: center; width: 44px; height: 44px;
     border: 2px solid var(--red); border-radius: 13px;
     background: linear-gradient(145deg, #2a1016, #101116);
-    box-shadow: 0 0 26px #e51d2a24; font-size: 23px; color: #fff;
-    animation: float 3s ease-in-out infinite;
+    font-size: 23px; color: #fff;
+    animation: float 3s ease-in-out infinite, pulseGlow 2s infinite alternate;
 }
 .brand-name { font-size: 20px; line-height: 1.2; }
 .brand-name span { color: var(--red); }
@@ -68,17 +115,24 @@ a { color: inherit; text-decoration: none; transition: 0.3s; }
 .navlinks { display: flex; align-items: center; gap: 24px; color: #d2d1d6; font-size: 14px; font-weight: 700; }
 .navlinks a:hover { color: var(--red); transform: translateY(-2px); }
 
-/* --- Buttons --- */
+/* --- دکمه‌ها --- */
 .btn {
     border: 0; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
     gap: 8px; border-radius: 12px; font-weight: 800; transition: .3s;
     padding: 12px 20px; min-height: 48px; font-family: inherit; font-size: 14px;
+    position: relative; overflow: hidden;
 }
 .btn-primary {
     background: linear-gradient(135deg, #ff3442, #b70c20);
     color: white; box-shadow: 0 10px 28px #d7182c25;
 }
+.btn-primary::before {
+    content: ''; position: absolute; top: 0; left: -100%; width: 100%; height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+    transition: 0.5s; z-index: -1;
+}
 .btn-primary:hover { transform: translateY(-3px); box-shadow: 0 14px 32px #d7182c5b; }
+.btn-primary:hover::before { left: 100%; }
 .btn-secondary {
     background: #ffffff08; color: #eee; border: 1px solid var(--line);
 }
@@ -90,25 +144,32 @@ a { color: inherit; text-decoration: none; transition: 0.3s; }
 .hero h1 { font-size: clamp(32px, 5vw, 56px); line-height: 1.3; margin: 18px 0 14px; font-weight: 900; }
 .hero h1 span { color: var(--red); text-shadow: 0 0 35px #f127352b; }
 .hero p { color: var(--muted); font-size: 16px; max-width: 600px; margin-bottom: 25px; }
-.eyebrow {
-    display: inline-flex; align-items: center; gap: 9px;
-    padding: 7px 12px; border-radius: 100px;
-    background: #e51b2a12; border: 1px solid #e51b2a42;
-    color: #ff6973; font-size: 12px; font-weight: 800;
+
+/* --- افکت تایپ --- */
+.typewriter {
+    overflow: hidden;
+    border-left: 4px solid var(--red);
+    white-space: nowrap;
+    margin: 0 auto;
+    letter-spacing: .15em;
+    animation: 
+        typing 3.5s steps(40, end),
+        blink-caret .75s step-end infinite;
 }
 
 /* --- Grid & Cards --- */
 .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
 .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
 .card {
-    background: linear-gradient(145deg, #15161d, #101116);
+    background: var(--panel);
+    backdrop-filter: blur(10px);
     border: 1px solid var(--line); border-radius: 20px;
     padding: 25px; box-shadow: 0 16px 40px #0002;
-    animation: fadeInUp 0.6s ease-out forwards;
+    animation: cardEntrance 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
     transition: transform 0.3s, box-shadow 0.3s, border-color 0.3s;
 }
 .card:hover {
-    transform: translateY(-5px);
+    transform: translateY(-5px) scale(1.02);
     box-shadow: 0 20px 45px #f1273520;
     border-color: var(--red);
 }
@@ -120,7 +181,7 @@ a { color: inherit; text-decoration: none; transition: 0.3s; }
     border-radius: 12px; margin-bottom: 15px;
     border: 1px solid var(--line); transition: transform 0.3s;
 }
-.product-card:hover .product-cover { transform: scale(1.03); }
+.product-card:hover .product-cover { transform: scale(1.05); }
 .product-title { font-size: 20px; margin-bottom: 8px; }
 .product-desc { color: var(--muted); font-size: 13px; flex-grow: 1; margin-bottom: 15px; white-space: pre-line; }
 .product-price { font-size: 22px; font-weight: 900; color: var(--white); }
@@ -156,6 +217,11 @@ tr:hover td { background: #ffffff05; }
 .badge-success { background: #26b87d18; color: var(--green); border-color: #26b87d44; }
 .badge-warning { background: #ffc44d18; color: var(--gold); border-color: #ffc44d44; }
 
+/* --- FAQ --- */
+details.card summary { cursor: pointer; transition: color 0.3s; }
+details.card summary:hover { color: var(--red); }
+details.card[open] { border-color: var(--red); box-shadow: 0 0 20px #f1273520; }
+
 /* --- Footer --- */
 footer { border-top: 1px solid var(--line); padding: 25px 0; color: var(--muted); font-size: 12px; text-align: center; margin-top: 60px; }
 
@@ -172,140 +238,8 @@ footer { border-top: 1px solid var(--line); padding: 25px 0; color: var(--muted)
 /* --- Responsive --- */
 @media (max-width: 768px) {
     .grid-2 { grid-template-columns: 1fr; }
-    
-    /* هدر در موبایل: منو به صورت افقی با اسکرول */
-    .nav { flex-wrap: wrap; min-height: auto; padding-bottom: 10px; }
-    .navlinks { 
-        display: flex; 
-        width: 100%; 
-        overflow-x: auto; 
-        gap: 15px;
-        justify-content: flex-start;
-        padding-top: 10px;
-        border-top: 1px solid var(--line);
-        -webkit-overflow-scrolling: touch;
-    }
-    .navlinks::-webkit-scrollbar { display: none; }
-    .navlinks a { font-size: 13px; white-space: nowrap; }
-    .btn { padding: 8px 12px; min-height: 36px; font-size: 12px; }
-
+    .navlinks { display: none; }
+    .nav { min-height: 66px; }
     .hero { padding: 30px 0; }
     .hero h1 { font-size: 32px; }
-}
- {
-    0% { transform: translateY(0) rotate(0deg); }
-    50% { transform: translateY(-15px) rotate(2deg); }
-    100% { transform: translateY(0) rotate(0deg); }
-}
-
-.anime-character {
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    z-index: 50;
-    animation: hoverCharacter 4s ease-in-out infinite;
-    filter: drop-shadow(0 0 20px var(--red));
-    pointer-events: none;
-    opacity: 0.8;
-}
-
-/* ۳. ستاره‌های در حال حرکت */
-@keyframes moveStars {
-    from { transform: translateY(0); }
-    to { transform: translateY(-2000px); }
-}
-
-.stars-bg {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 200vh;
-    background-image: 
-        radial-gradient(2px 2px at 20px 30px, var(--red), rgba(0,0,0,0)),
-        radial-gradient(2px 2px at 40px 70px, var(--red), rgba(0,0,0,0)),
-        radial-gradient(1px 1px at 50px 160px, var(--red), rgba(0,0,0,0)),
-        radial-gradient(2px 2px at 90px 40px, var(--red), rgba(0,0,0,0)),
-        radial-gradient(1px 1px at 130px 80px, var(--red), rgba(0,0,0,0));
-    background-repeat: repeat;
-    background-size: 200px 200px;
-    animation: moveStars 20s linear infinite;
-    opacity: 0.3;
-    z-index: -2;
-    pointer-events: none;
-}
-
-/* ۴. افکت تایپ */
-.typewriter {
-    overflow: hidden;
-    border-left: 4px solid var(--red);
-    white-space: nowrap;
-    margin: 0 auto;
-    letter-spacing: .15em;
-    animation: 
-        typing 3.5s steps(40, end),
-        blink-caret .75s step-end infinite;
-}
-
-@keyframes typing {
-    from { width: 0 }
-    to { width: 100% }
-}
-@keyframes blink-caret {
-    from, to { border-color: transparent }
-    50% { border-color: var(--red); }
-}
-/* ==================================================== */
-/* --- انیمیشن‌های جدید با ماشین تصادفی و کاراکتر --- */
-/* ==================================================== */
-
-/* ۱. ماشین تصادفی در حال حرکت */
-@keyframes driveCar {
-    0% { transform: translateX(-100vw) scaleX(1); }
-    100% { transform: translateX(100vw) scaleX(1); }
-}
-
-.car-animation {
-    position: fixed;
-    bottom: 20px;
-    left: 0;
-    z-index: 50;
-    animation: driveCar 15s linear infinite;
-    pointer-events: none;
-}
-
-.car-animation img {
-    width: 200px; /* سایز ماشین */
-    height: auto;
-    filter: drop-shadow(0 0 15px var(--red)); /* افکت درخشش قرمز */
-}
-
-/* ۲. کاراکتر سایبرپانک RipperMods */
-@keyframes hoverCharacter {
-    0% { transform: translateY(0); }
-    50% { transform: translateY(-15px); }
-    100% { transform: translateY(0); }
-}
-
-/* انیمیشن پلک زدن (شبیه‌سازی) */
-@keyframes blink {
-    0%, 90%, 100% { transform: scaleY(1); }
-    95% { transform: scaleY(0.1); }
-}
-
-.anime-character {
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    z-index: 50;
-    animation: hoverCharacter 4s ease-in-out infinite;
-    pointer-events: none;
-    opacity: 0.9;
-}
-
-.anime-character img {
-    width: 150px; /* سایز کاراکتر */
-    height: auto;
-    filter: drop-shadow(0 0 20px var(--red)); /* افکت درخشش قرمز */
-    animation: blink 5s infinite; /* انیمیشن پلک زدن */
 }
