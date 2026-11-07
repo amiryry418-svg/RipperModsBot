@@ -10,7 +10,6 @@ from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 import psycopg2
 from psycopg2.extras import RealDictCursor
-import requests
 import resend
 
 app = Flask(__name__)
@@ -20,7 +19,6 @@ DATABASE_URL = os.environ.get('DATABASE_URL')
 ADMIN_USER = os.environ.get('ADMIN1_USER', 'Rippermw')
 ADMIN_PASS = os.environ.get('ADMIN1_PASSWORD', '123456')
 
-# تنظیم API Key برای Resend
 resend.api_key = os.environ.get('RESEND_API_KEY', 're_YOUR_API_KEY_HERE')
 
 REDOWNLOAD_PRICE = Decimal('150000')
@@ -29,7 +27,6 @@ BASE_LINK = "https://dl2.megadl.click/PS4-Hacked/GTAV/CUSA00419/BASE/"
 CARD_NUMBER = os.environ.get('CARD_NUMBER', '5022291544593963')
 CARD_HOLDER = os.environ.get('CARD_HOLDER', 'ریبعی نژاد')
 
-# --- کد تست برای ورود ادمین ---
 TEST_ADMIN_EMAIL = "admin@rippermods.ir"
 
 def get_db():
@@ -43,7 +40,6 @@ def init_db():
     with get_db() as conn:
         with conn.cursor() as cur:
             try:
-                # ۱. ساخت جدول کاربران سایت اگر وجود نداشته باشد
                 cur.execute("""CREATE TABLE IF NOT EXISTS site_users (
                     id BIGSERIAL PRIMARY KEY,
                     email TEXT UNIQUE NOT NULL,
@@ -55,22 +51,17 @@ def init_db():
                 )""")
                 cur.execute("ALTER TABLE site_users ADD COLUMN IF NOT EXISTS email TEXT UNIQUE")
 
-                # ۲. حذف کلیدهای خارجی قدیمی (برای اینکه بتونیم رکوردها رو پاک کنیم)
                 cur.execute("ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_user_id_fkey")
                 cur.execute("ALTER TABLE link_codes DROP CONSTRAINT IF EXISTS link_codes_telegram_id_fkey")
                 cur.execute("ALTER TABLE coupon_uses DROP CONSTRAINT IF EXISTS coupon_uses_order_id_fkey")
 
-                # ۳. پاک کردن رکوردهای coupon_uses که به سفارش‌های نامعتبر وصلن
                 cur.execute("""
                     DELETE FROM coupon_uses 
                     WHERE order_id NOT IN (SELECT id FROM orders WHERE user_id IN (SELECT id FROM site_users))
                 """)
-
-                # ۴. پاک کردن رکوردهای orders و link_codes که کاربرشون توی site_users نیست
                 cur.execute("DELETE FROM orders WHERE user_id NOT IN (SELECT id FROM site_users)")
                 cur.execute("DELETE FROM link_codes WHERE telegram_id NOT IN (SELECT id FROM site_users)")
 
-                # ۵. اضافه کردن مجدد کلیدهای خارجی، ولی اینبار به site_users
                 cur.execute("""
                     ALTER TABLE orders 
                     ADD CONSTRAINT orders_user_id_fkey 
@@ -82,13 +73,15 @@ def init_db():
                     FOREIGN KEY (telegram_id) REFERENCES site_users(id) ON DELETE CASCADE
                 """)
 
-                # ۶. اضافه کردن ستون‌های جدید
                 cur.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS short_desc TEXT")
                 cur.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS full_desc TEXT")
                 cur.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS video_url TEXT")
                 cur.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS receipt_image_base64 TEXT")
+                
+                # ستون‌های لازم برای ذخیره لینک اختصاصی و زمان انقضا
+                cur.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS receipt_file_id TEXT")
+                cur.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS link_expires_at TIMESTAMPTZ")
 
-                # ۷. ساخت جداول جانبی
                 cur.execute("""CREATE TABLE IF NOT EXISTS product_images (
                     id BIGSERIAL PRIMARY KEY,
                     product_id BIGINT REFERENCES products(id) ON DELETE CASCADE,
@@ -106,7 +99,6 @@ def init_db():
                     replied_at TIMESTAMPTZ
                 )""")
 
-                # ۸. اضافه کردن کاور پیش‌فرض
                 cur.execute("SELECT id, name FROM products")
                 prods = cur.fetchall()
                 for p in prods:
@@ -125,7 +117,6 @@ def init_db():
                 conn.rollback()
                 raise e
 
-# تابع ارسال ایمیل با Resend
 def send_email_code(email, code):
     try:
         resend.Emails.send({
@@ -179,7 +170,6 @@ def product_detail(pid):
         
     return render_template('product.html', product=product, images=images, base_link=BASE_LINK, video_url=video_url, has_bought=has_bought)
 
-# --- ثبت‌نام ---
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
@@ -230,7 +220,6 @@ def register():
 
     return render_template('register.html')
 
-# --- ورود ---
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -273,7 +262,6 @@ def login():
 
     return render_template('login.html')
 
-# --- تایید کد ---
 @app.route('/verify_code', methods=['GET', 'POST'])
 def verify_code():
     if 'temp_user_id' not in session:
@@ -315,6 +303,10 @@ def dashboard():
             
             now = datetime.now()
             for o in orders:
+                o['download_links'] = []
+                if o.get('receipt_file_id') and o['status'] in ['approved', 'delivered']:
+                    o['download_links'] = o['receipt_file_id'].split('|')
+                
                 o['is_expired'] = (o.get('link_expires_at') and o['link_expires_at'].replace(tzinfo=None) < now)
             
             cur.execute("SELECT * FROM site_tickets WHERE user_id=%s ORDER BY created_at DESC", (session['site_user_id'],))
@@ -332,7 +324,6 @@ def new_ticket():
         flash('تیکت شما ثبت شد.', 'success')
     return redirect(url_for('dashboard'))
 
-# --- فرآیند خرید و پرداخت ---
 @app.route('/buy/<int:pid>', methods=['POST'])
 def buy_product(pid):
     if 'site_user_id' not in session:
@@ -409,7 +400,6 @@ def upload_receipt(order_id):
         flash('خطا در ذخیره عکس. لطفاً دوباره تلاش کنید.', 'error')
         return redirect(url_for('payment_page', order_id=order_id))
 
-# --- پنل ادمین ---
 def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -452,10 +442,33 @@ def admin_panel():
 @admin_required
 def admin_order_action(oid, action):
     if action not in ['approve', 'reject']: return "خطا", 400
-    new_status = 'approved' if action == 'approve' else 'rejected'
+    
     with get_db() as conn:
         with conn.cursor() as cur:
-            cur.execute("UPDATE orders SET status=%s, updated_at=now(), reviewed_at=now() WHERE id=%s", (new_status, oid))
+            if action == 'approve':
+                cur.execute("SELECT product_id FROM orders WHERE id=%s", (oid,))
+                order = cur.fetchone()
+                
+                if order and order['product_id']:
+                    cur.execute("SELECT link FROM product_links WHERE product_id=%s", (order['product_id'],))
+                    links = [r['link'] for r in cur.fetchall()]
+                    links_text = '|'.join(links)
+                    
+                    cur.execute("""
+                        UPDATE orders 
+                        SET status='approved', 
+                            updated_at=now(), 
+                            reviewed_at=now(),
+                            receipt_image_base64=NULL,
+                            receipt_file_id=%s,
+                            link_expires_at = now() + interval '5 days'
+                        WHERE id=%s
+                    """, (links_text, oid))
+                else:
+                    cur.execute("UPDATE orders SET status='approved', updated_at=now(), reviewed_at=now() WHERE id=%s", (oid,))
+            else:
+                cur.execute("UPDATE orders SET status='rejected', updated_at=now(), reviewed_at=now() WHERE id=%s", (oid,))
+                
     flash('وضعیت سفارش تغییر کرد.', 'success')
     return redirect(url_for('admin_panel'))
 
