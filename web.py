@@ -42,91 +42,81 @@ def init_db():
     print("Initializing DB...")
     with get_db() as conn:
         with conn.cursor() as cur:
-            # ۱. اضافه کردن ستون‌های جدید به جدول محصولات (برای جلوگیری از خطای ۵۰۰ پنل ادمین)
-            cur.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS short_desc TEXT")
-            cur.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS full_desc TEXT")
-            cur.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS video_url TEXT")
+            try:
+                # ۱. ساخت جدول کاربران سایت اگر وجود نداشته باشد
+                cur.execute("""CREATE TABLE IF NOT EXISTS site_users (
+                    id BIGSERIAL PRIMARY KEY,
+                    email TEXT UNIQUE NOT NULL,
+                    full_name TEXT NOT NULL,
+                    phone TEXT NOT NULL UNIQUE,
+                    telegram_id BIGINT UNIQUE,
+                    username TEXT,
+                    created_at TIMESTAMPTZ DEFAULT now()
+                )""")
+                cur.execute("ALTER TABLE site_users ADD COLUMN IF NOT EXISTS email TEXT UNIQUE")
 
-            # ۲. اضافه کردن ستون عکس رسید به جدول سفارش‌ها
-            cur.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS receipt_image_base64 TEXT")
+                # ۲. حذف کلیدهای خارجی قدیمی (برای اینکه بتونیم رکوردها رو پاک کنیم)
+                cur.execute("ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_user_id_fkey")
+                cur.execute("ALTER TABLE link_codes DROP CONSTRAINT IF EXISTS link_codes_telegram_id_fkey")
 
-            # ۳. ساخت جدول کاربران سایت (اگر وجود نداشته باشد)
-            cur.execute("""CREATE TABLE IF NOT EXISTS site_users (
-                id BIGSERIAL PRIMARY KEY,
-                email TEXT UNIQUE NOT NULL,
-                full_name TEXT NOT NULL,
-                phone TEXT NOT NULL UNIQUE,
-                telegram_id BIGINT UNIQUE,
-                username TEXT,
-                created_at TIMESTAMPTZ DEFAULT now()
-            )""")
-            cur.execute("ALTER TABLE site_users ADD COLUMN IF NOT EXISTS email TEXT UNIQUE")
+                # ۳. پاک کردن تمام رکوردهای orders و link_codes که کاربرشون توی site_users نیست
+                cur.execute("DELETE FROM orders WHERE user_id NOT IN (SELECT id FROM site_users)")
+                cur.execute("DELETE FROM link_codes WHERE telegram_id NOT IN (SELECT id FROM site_users)")
 
-            # ۴. پاکسازی رکوردهای قدیمی که با site_users هماهنگ نیستند (رفع خطای خرید)
-            cur.execute("DELETE FROM orders WHERE user_id NOT IN (SELECT id FROM site_users)")
-            cur.execute("DELETE FROM link_codes WHERE telegram_id NOT IN (SELECT id FROM site_users)")
+                # ۴. اضافه کردن مجدد کلیدهای خارجی، ولی اینبار به site_users
+                cur.execute("""
+                    ALTER TABLE orders 
+                    ADD CONSTRAINT orders_user_id_fkey 
+                    FOREIGN KEY (user_id) REFERENCES site_users(id) ON DELETE CASCADE
+                """)
+                cur.execute("""
+                    ALTER TABLE link_codes 
+                    ADD CONSTRAINT link_codes_telegram_id_fkey 
+                    FOREIGN KEY (telegram_id) REFERENCES site_users(id) ON DELETE CASCADE
+                """)
 
-            # ۵. اصلاح کلید خارجی جدول orders
-            cur.execute("""
-                DO $$ 
-                BEGIN 
-                    IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name='orders_user_id_fkey') THEN
-                        ALTER TABLE orders DROP CONSTRAINT orders_user_id_fkey;
-                    END IF;
-                END $$;
-            """)
-            cur.execute("""
-                ALTER TABLE orders 
-                ADD CONSTRAINT orders_user_id_fkey 
-                FOREIGN KEY (user_id) REFERENCES site_users(id) ON DELETE CASCADE;
-            """)
+                # ۵. اضافه کردن ستون‌های جدید به جدول محصولات و سفارش‌ها
+                cur.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS short_desc TEXT")
+                cur.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS full_desc TEXT")
+                cur.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS video_url TEXT")
+                cur.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS receipt_image_base64 TEXT")
 
-            # ۶. اصلاح کلید خارجی جدول link_codes
-            cur.execute("""
-                DO $$ 
-                BEGIN 
-                    IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name='link_codes_telegram_id_fkey') THEN
-                        ALTER TABLE link_codes DROP CONSTRAINT link_codes_telegram_id_fkey;
-                    END IF;
-                END $$;
-            """)
-            cur.execute("""
-                ALTER TABLE link_codes 
-                ADD CONSTRAINT link_codes_telegram_id_fkey 
-                FOREIGN KEY (telegram_id) REFERENCES site_users(id) ON DELETE CASCADE;
-            """)
+                # ۶. ساخت جداول جانبی
+                cur.execute("""CREATE TABLE IF NOT EXISTS product_images (
+                    id BIGSERIAL PRIMARY KEY,
+                    product_id BIGINT REFERENCES products(id) ON DELETE CASCADE,
+                    image_url TEXT NOT NULL,
+                    is_cover BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMPTZ DEFAULT now()
+                )""")
+                cur.execute("""CREATE TABLE IF NOT EXISTS site_tickets (
+                    id BIGSERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    message TEXT NOT NULL,
+                    reply TEXT,
+                    status TEXT DEFAULT 'open',
+                    created_at TIMESTAMPTZ DEFAULT now(),
+                    replied_at TIMESTAMPTZ
+                )""")
 
-            # ۷. ساخت جداول جانبی (اگر وجود نداشته باشند)
-            cur.execute("""CREATE TABLE IF NOT EXISTS product_images (
-                id BIGSERIAL PRIMARY KEY,
-                product_id BIGINT REFERENCES products(id) ON DELETE CASCADE,
-                image_url TEXT NOT NULL,
-                is_cover BOOLEAN DEFAULT FALSE,
-                created_at TIMESTAMPTZ DEFAULT now()
-            )""")
-            cur.execute("""CREATE TABLE IF NOT EXISTS site_tickets (
-                id BIGSERIAL PRIMARY KEY,
-                user_id BIGINT NOT NULL,
-                message TEXT NOT NULL,
-                reply TEXT,
-                status TEXT DEFAULT 'open',
-                created_at TIMESTAMPTZ DEFAULT now(),
-                replied_at TIMESTAMPTZ
-            )""")
-
-            # ۸. اضافه کردن کاور پیش‌فرض برای محصولات
-            cur.execute("SELECT id, name FROM products")
-            prods = cur.fetchall()
-            for p in prods:
-                cur.execute("SELECT 1 FROM product_images WHERE product_id=%s LIMIT 1", (p['id'],))
-                if not cur.fetchone():
-                    if 'سوپر' in p['name'] or 'super' in p['name'].lower():
-                        cur.execute("INSERT INTO product_images (product_id, image_url, is_cover) VALUES (%s, %s, true)", 
-                                    (p['id'], 'https://s31.uupload.ir/files/rippermodsgtavv100/Amir/4/./IMG_20261101_145958_359.jpg'))
-                    elif 'ایرانیزه' in p['name']:
-                        cur.execute("INSERT INTO product_images (product_id, image_url, is_cover) VALUES (%s, %s, true)", 
-                                    (p['id'], 'https://s50.uupload.ir/files/rippermodsgtavv100/Amir/3/IMG_20261030_235715_878.jpg'))
-    print("DB Initialized successfully.")
+                # ۷. اضافه کردن کاور پیش‌فرض
+                cur.execute("SELECT id, name FROM products")
+                prods = cur.fetchall()
+                for p in prods:
+                    cur.execute("SELECT 1 FROM product_images WHERE product_id=%s LIMIT 1", (p['id'],))
+                    if not cur.fetchone():
+                        if 'سوپر' in p['name'] or 'super' in p['name'].lower():
+                            cur.execute("INSERT INTO product_images (product_id, image_url, is_cover) VALUES (%s, %s, true)", 
+                                        (p['id'], 'https://s31.uupload.ir/files/rippermodsgtavv100/Amir/4/./IMG_20261101_145958_359.jpg'))
+                        elif 'ایرانیزه' in p['name']:
+                            cur.execute("INSERT INTO product_images (product_id, image_url, is_cover) VALUES (%s, %s, true)", 
+                                        (p['id'], 'https://s50.uupload.ir/files/rippermodsgtavv100/Amir/3/IMG_20261030_235715_878.jpg'))
+                
+                print("DB Initialized successfully.")
+            except Exception as e:
+                print(f"DB Init Error: {e}")
+                conn.rollback()
+                raise e
 
 # تابع ارسال ایمیل با Resend
 def send_email_code(email, code):
@@ -496,7 +486,6 @@ def admin_update_product(pid):
                 else:
                     cur.execute("INSERT INTO product_links (product_id, link) VALUES (%s, %s)", (pid, new_link))
             
-            # آپدیت توضیحات و ویدیو
             cur.execute("""
                 UPDATE products 
                 SET short_desc = COALESCE(%s, short_desc),
@@ -516,7 +505,6 @@ def admin_update_product(pid):
     flash('محصول با موفقیت آپدیت شد.', 'success')
     return redirect(url_for('admin_panel'))
 
-# این خطوط باعث می‌شوند جدول‌ها به محض بالا آمدن سرور ساخته شوند
 try:
     init_db()
 except Exception as e:
