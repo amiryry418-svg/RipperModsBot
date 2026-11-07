@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}RipperMods | فروشگاه محصولات{% endblock %}
+{% block title %}RipperMods | مرجع مود و پک‌های GTA V{% endblock %}
 
 {% block content %}
 <!-- Hero Section -->
@@ -8,10 +8,10 @@
     <div class="wrap" style="text-align: center;">
         <div class="eyebrow" style="margin-bottom: 20px;">
             <span style="display: inline-block; width: 8px; height: 8px; background: var(--red); border-radius: 50%; box-shadow: 0 0 12px var(--red);"></span>
-            پورتال رسمی مشتریان RipperMods
+            مرجع تخصصی مودهای GTA V
         </div>
         <h1>دنیای بازی‌ات را<br><span>متفاوت تجربه کن.</span></h1>
-        <p style="margin: 0 auto 30px;">به پنل اختصاصی مشتریان RipperMods خوش آمدید. محصولات را مشاهده کنید، با ایمیل وارد شوید و به فایل‌های خود دسترسی داشته باشید.</p>
+        <p style="margin: 0 auto 30px;">بهترین پک‌های GTA V با کیفیت و پشتیبانی بالا. ماشین‌های ایرانی، ماد منیو و فارسی‌سازی، همه در یک پکیج اختصاصی.</p>
         
         <div class="flex items-center justify-between gap-2" style="justify-content: center;">
             <a href="#products" class="btn btn-primary"><i class="fa-solid fa-bag-shopping"></i> مشاهده محصولات</a>
@@ -20,11 +20,32 @@
     </div>
 </section>
 
+<!-- Categories Section -->
+<section class="wrap mb-4" style="padding-top: 20px;">
+    <h2 style="font-size: 24px; margin-bottom: 20px; text-align: center;">دسته‌بندی‌ها</h2>
+    <div class="grid-3" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+        <a href="#products" class="card text-center" style="text-decoration: none; padding: 30px 15px;">
+            <i class="fa-solid fa-car" style="font-size: 30px; color: var(--red); margin-bottom: 10px;"></i>
+            <h3 style="font-size: 16px;">ماشین و موتور</h3>
+        </a>
+        <a href="#products" class="card text-center" style="text-decoration: none; padding: 30px 15px;">
+            <i class="fa-solid fa-gamepad" style="font-size: 30px; color: var(--red); margin-bottom: 10px;"></i>
+            <h3 style="font-size: 16px;">ماد منیو</h3>
+        </a>
+        <a href="#products" class="card text-center" style="text-decoration: none; padding: 30px 15px;">
+            <i class="fa-solid fa-language" style="font-size: 30px; color: var(--red); margin-bottom: 10px;"></i>
+            <h3 style="font-size: 16px;">فارسی‌سازی</h3>
+        </a>
+    </div>
+</section>
+
 <!-- Products Section -->
 <section class="wrap mb-4" id="products">
-    <div style="margin-bottom: 30px;">
-        <h2 style="font-size: 28px;">محصولات ما</h2>
-        <p style="color: var(--muted); margin-top: 5px;">بهترین پک‌های GTA V با کیفیت و پشتیبانی بالا</p>
+    <div style="margin-bottom: 30px; display: flex; justify-content: space-between; align-items: end;">
+        <div>
+            <h2 style="font-size: 28px;">محصولات ما</h2>
+            <p style="color: var(--muted); margin-top: 5px;">بهترین پک‌های GTA V با کیفیت و پشتیبانی بالا</p>
+        </div>
     </div>
 
     <div class="grid-2">
@@ -50,23 +71,52 @@
     </div>
 </section>
 
-<!-- Features Section -->
-<section class="wrap mb-4" style="padding-top: 20px;">
+<!-- FAQ Section (سوالات متداول) -->
+<section class="wrap mb-4" style="margin-top: 60px;">
+    <h2 style="font-size: 28px; text-align: center; margin-bottom: 30px;">سوالات متداول</h2>
+    <div style="display: flex; flex-direction: column; gap: 15px; max-width: 800px; margin: 0 auto;">
+        
+        <details class="card" style="cursor: pointer;">
+            <summary style="font-weight: bold; font-size: 16px;">چطور می‌تونم خرید کنم؟</summary>
+            <p style="color: var(--muted); margin-top: 15px; font-size: 14px; line-height: 1.8;">ابتدا در سایت ثبت‌نام کنید، محصول مورد نظر را انتخاب کرده و پس از پرداخت، تصویر رسید را در پنل کاربری آپلود کنید. پس از تایید ادمین، لینک‌های دانلود برای شما فعال می‌شود.</p>
+        </details>
+
+        <details class="card" style="cursor: pointer;">
+            <summary style="font-weight: bold; font-size: 16px;">آیا نسخه بیس بازی رایگان است؟</summary>
+            <p style="color: var(--muted); margin-top: 15px; font-size: 14px; line-height: 1.8;">بله، شما می‌توانید نسخه بیس بازی را از دکمه بالای صفحه به صورت رایگان دانلود کنید. برای استفاده از پک‌ها، حتماً باید نسخه بازی شما با این نسخه بیس هماهنگ باشد.</p>
+        </details>
+
+        <details class="card" style="cursor: pointer;">
+            <summary style="font-weight: bold; font-size: 16px;">چطور مودها را روی PS4 نصب کنم؟</summary>
+            <p style="color: var(--muted); margin-top: 15px; font-size: 14px; line-height: 1.8;">پس از دانلود فایل‌ها و استخراج آن‌ها با WinRAR، فایل .pkg به دست آمده را روی یک فلش با فرمت exFAT کپی کنید. فلش را به کنسول وصل کرده و از مسیر Debug Settings / Package Installer نصب کنید.</p>
+        </details>
+
+        <details class="card" style="cursor: pointer;">
+            <summary style="font-weight: bold; font-size: 16px;">آیا پشتیبانی دارید؟</summary>
+            <p style="color: var(--muted); margin-top: 15px; font-size: 14px; line-height: 1.8;">بله، تیم پشتیبانی RipperMods به صورت ۲۴ ساعته از طریق تلگرام و بخش پشتیبانی سایت آماده پاسخگویی به شماست.</p>
+        </details>
+
+    </div>
+</section>
+
+<!-- Features Section (چرا ما؟) -->
+<section class="wrap mb-4" style="padding-top: 40px;">
+    <h2 style="font-size: 28px; text-align: center; margin-bottom: 30px;">چرا RipperMods؟</h2>
     <div class="grid-3">
         <div class="card text-center">
             <i class="fa-solid fa-shield-halved" style="font-size: 30px; color: var(--red); margin-bottom: 15px;"></i>
             <h3>امنیت بالا</h3>
-            <p style="color: var(--muted); font-size: 13px;">ورود امن با تایید هویت از طریق ایمیل و عدم نیاز به رمز عبور پیچیده.</p>
+            <p style="color: var(--muted); font-size: 13px;">ورود امن با تایید هویت از طریق ایمیل.</p>
         </div>
         <div class="card text-center">
             <i class="fa-solid fa-bolt" style="font-size: 30px; color: var(--red); margin-bottom: 15px;"></i>
             <h3>تحویل آنی</h3>
-            <p style="color: var(--muted); font-size: 13px;">بلافاصله پس از تایید پرداخت، لینک‌های دانلود در پنل کاربری و ربات فعال می‌شوند.</p>
+            <p style="color: var(--muted); font-size: 13px;">بلافاصله پس از تایید پرداخت، لینک‌های دانلود فعال می‌شوند.</p>
         </div>
         <div class="card text-center">
             <i class="fa-solid fa-headset" style="font-size: 30px; color: var(--red); margin-bottom: 15px;"></i>
             <h3>پشتیبانی ۲۴/۷</h3>
-            <p style="color: var(--muted); font-size: 13px;">تیم پشتیبانی ما همیشه آماده پاسخگویی و رفع مشکلات شماست.</p>
+            <p style="color: var(--muted); font-size: 13px;">تیم پشتیبانی همیشه آماده پاسخگویی است.</p>
         </div>
     </div>
 </section>
