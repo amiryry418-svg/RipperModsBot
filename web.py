@@ -39,28 +39,18 @@ def get_db():
     return psycopg2.connect(DATABASE_URL, **kwargs)
 
 def init_db():
+    print("Initializing DB...")
     with get_db() as conn:
         with conn.cursor() as cur:
-            # جدول عکس‌های محصولات
-            cur.execute("""CREATE TABLE IF NOT EXISTS product_images (
-                id BIGSERIAL PRIMARY KEY,
-                product_id BIGINT REFERENCES products(id) ON DELETE CASCADE,
-                image_url TEXT NOT NULL,
-                is_cover BOOLEAN DEFAULT FALSE,
-                created_at TIMESTAMPTZ DEFAULT now()
-            )""")
-            # جدول تیکت‌های سایت
-            cur.execute("""CREATE TABLE IF NOT EXISTS site_tickets (
-                id BIGSERIAL PRIMARY KEY,
-                user_id BIGINT NOT NULL,
-                message TEXT NOT NULL,
-                reply TEXT,
-                status TEXT DEFAULT 'open',
-                created_at TIMESTAMPTZ DEFAULT now(),
-                replied_at TIMESTAMPTZ
-            )""")
-            
-            # جدول کاربران سایت (با ایمیل)
+            # ۱. اضافه کردن ستون‌های جدید به جدول محصولات (برای جلوگیری از خطای ۵۰۰ پنل ادمین)
+            cur.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS short_desc TEXT")
+            cur.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS full_desc TEXT")
+            cur.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS video_url TEXT")
+
+            # ۲. اضافه کردن ستون عکس رسید به جدول سفارش‌ها
+            cur.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS receipt_image_base64 TEXT")
+
+            # ۳. ساخت جدول کاربران سایت (اگر وجود نداشته باشد)
             cur.execute("""CREATE TABLE IF NOT EXISTS site_users (
                 id BIGSERIAL PRIMARY KEY,
                 email TEXT UNIQUE NOT NULL,
@@ -70,30 +60,13 @@ def init_db():
                 username TEXT,
                 created_at TIMESTAMPTZ DEFAULT now()
             )""")
-            # برای دیتابیس‌هایی که از قبل ساخته شدن
             cur.execute("ALTER TABLE site_users ADD COLUMN IF NOT EXISTS email TEXT UNIQUE")
-            
-            # --- پاکسازی رکوردهای قدیمی قبل از تغییر کلید خارجی ---
+
+            # ۴. پاکسازی رکوردهای قدیمی که با site_users هماهنگ نیستند (رفع خطای خرید)
             cur.execute("DELETE FROM orders WHERE user_id NOT IN (SELECT id FROM site_users)")
             cur.execute("DELETE FROM link_codes WHERE telegram_id NOT IN (SELECT id FROM site_users)")
-            # ---------------------------------------------------------------------
 
-            # --- اصلاح کلید خارجی جدول link_codes برای اتصال به کاربران سایت ---
-            cur.execute("""
-                DO $$ 
-                BEGIN 
-                    IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name='link_codes_telegram_id_fkey') THEN
-                        ALTER TABLE link_codes DROP CONSTRAINT link_codes_telegram_id_fkey;
-                    END IF;
-                END $$;
-            """)
-            cur.execute("""
-                ALTER TABLE link_codes 
-                ADD CONSTRAINT link_codes_telegram_id_fkey 
-                FOREIGN KEY (telegram_id) REFERENCES site_users(id) ON DELETE CASCADE;
-            """)
-            
-            # --- اصلاح کلید خارجی جدول orders برای اتصال به کاربران سایت ---
+            # ۵. اصلاح کلید خارجی جدول orders
             cur.execute("""
                 DO $$ 
                 BEGIN 
@@ -107,12 +80,41 @@ def init_db():
                 ADD CONSTRAINT orders_user_id_fkey 
                 FOREIGN KEY (user_id) REFERENCES site_users(id) ON DELETE CASCADE;
             """)
-            # ---------------------------------------------------------------------
 
-            # اضافه کردن ستون عکس رسید به جدول سفارش‌ها
-            cur.execute("""ALTER TABLE orders ADD COLUMN IF NOT EXISTS receipt_image_base64 TEXT""")
-            
-            # اضافه کردن کاور پیش‌فرض برای محصولات (اگر خالی بود)
+            # ۶. اصلاح کلید خارجی جدول link_codes
+            cur.execute("""
+                DO $$ 
+                BEGIN 
+                    IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name='link_codes_telegram_id_fkey') THEN
+                        ALTER TABLE link_codes DROP CONSTRAINT link_codes_telegram_id_fkey;
+                    END IF;
+                END $$;
+            """)
+            cur.execute("""
+                ALTER TABLE link_codes 
+                ADD CONSTRAINT link_codes_telegram_id_fkey 
+                FOREIGN KEY (telegram_id) REFERENCES site_users(id) ON DELETE CASCADE;
+            """)
+
+            # ۷. ساخت جداول جانبی (اگر وجود نداشته باشند)
+            cur.execute("""CREATE TABLE IF NOT EXISTS product_images (
+                id BIGSERIAL PRIMARY KEY,
+                product_id BIGINT REFERENCES products(id) ON DELETE CASCADE,
+                image_url TEXT NOT NULL,
+                is_cover BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMPTZ DEFAULT now()
+            )""")
+            cur.execute("""CREATE TABLE IF NOT EXISTS site_tickets (
+                id BIGSERIAL PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                message TEXT NOT NULL,
+                reply TEXT,
+                status TEXT DEFAULT 'open',
+                created_at TIMESTAMPTZ DEFAULT now(),
+                replied_at TIMESTAMPTZ
+            )""")
+
+            # ۸. اضافه کردن کاور پیش‌فرض برای محصولات
             cur.execute("SELECT id, name FROM products")
             prods = cur.fetchall()
             for p in prods:
@@ -124,7 +126,7 @@ def init_db():
                     elif 'ایرانیزه' in p['name']:
                         cur.execute("INSERT INTO product_images (product_id, image_url, is_cover) VALUES (%s, %s, true)", 
                                     (p['id'], 'https://s50.uupload.ir/files/rippermodsgtavv100/Amir/3/IMG_20261030_235715_878.jpg'))
-    print("DB Initialized.")
+    print("DB Initialized successfully.")
 
 # تابع ارسال ایمیل با Resend
 def send_email_code(email, code):
@@ -195,7 +197,6 @@ def register():
         try:
             with get_db() as conn:
                 with conn.cursor() as cur:
-                    # ۱. چک میکنیم ببینیم این ایمیل قبلا ثبت‌نام کرده یا نه
                     cur.execute("SELECT id FROM site_users WHERE email=%s", (email,))
                     existing_user = cur.fetchone()
                     
@@ -203,7 +204,6 @@ def register():
                         flash('شما قبلاً با این ایمیل ثبت‌نام کرده‌اید. لطفاً وارد شوید.', 'error')
                         return redirect(url_for('login'))
                     
-                    # ۲. اگر ایمیل جدید بود، ثبت‌نام رو انجام میدیم
                     cur.execute("""
                         INSERT INTO site_users (email, full_name, phone) 
                         VALUES (%s, %s, %s) 
@@ -211,7 +211,6 @@ def register():
                     """, (email, full_name, phone))
                     uid = cur.fetchone()['id']
                     
-                    # ۳. ساخت و ذخیره کد تایید
                     code = ''.join(random.choices(string.digits, k=6))
                     expires_at = datetime.now() + timedelta(minutes=2)
                     
@@ -220,7 +219,6 @@ def register():
                     
                     session['temp_user_id'] = uid
             
-            # ۴. ارسال ایمیل
             if send_email_code(email, code):
                 flash('کد ورود به ایمیل شما ارسال شد.', 'success')
                 return redirect(url_for('verify_code'))
@@ -241,7 +239,6 @@ def login():
     if request.method == 'POST':
         email = request.form.get('email', '').strip().lower()
         
-        # چک کد تست ادمین
         if email == TEST_ADMIN_EMAIL:
             session['is_admin'] = True
             return redirect(url_for('admin_panel'))
@@ -258,7 +255,6 @@ def login():
                         
                     uid = user['id']
                     
-                    # ساخت کد و ذخیره
                     code = ''.join(random.choices(string.digits, k=6))
                     expires_at = datetime.now() + timedelta(minutes=2)
                     
