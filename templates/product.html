@@ -9,14 +9,15 @@
     <div class="grid-2" style="align-items: stretch; margin-bottom: 25px;">
         
         <!-- ستون راست: اطلاعات، قیمت و دکمه خرید -->
-        <div class="card" style="display: flex; flex-direction: column; min-height: 450px;">
+        <div class="card" style="display: flex; flex-direction: column; min-height: 500px;">
             <h2 style="font-size: 26px; color: var(--red); margin-bottom: 15px;">{{ product.name }}</h2>
             
+            <!-- توضیحات با flex-grow تا فضای خالی رو پر کنه -->
             <div style="color: var(--muted); font-size: 15px; line-height: 1.8; flex-grow: 1; margin-bottom: 20px;">
                 {{ product.short_desc | safe if product.short_desc else 'توضیحات کوتاهی برای این محصول ثبت نشده است.' }}
             </div>
             
-            <!-- باکس قیمت و دکمه خرید -->
+            <!-- باکس قیمت و دکمه خرید (چسبیده به پایین) -->
             <div style="background: var(--bg); border-radius: 10px; padding: 20px; border: 1px solid var(--line); margin-top: auto;">
                 <div class="flex justify-between items-center" style="margin-bottom: 20px; border-bottom: 1px solid var(--line); padding-bottom: 15px;">
                     <span style="color: var(--muted); font-size: 15px;">قیمت محصول:</span>
