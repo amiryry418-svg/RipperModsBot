@@ -20,13 +20,17 @@
             </a>
             <nav class="navlinks">
                 <a href="{{ url_for('index') }}#products">محصولات</a>
+                
                 {% if session.get('site_user_id') %}
+                    <!-- اگر کاربر لاگین کرده باشد -->
                     <a href="{{ url_for('dashboard') }}"><i class="fa-solid fa-user"></i> پنل کاربری</a>
                     <a href="{{ url_for('logout') }}" class="btn btn-secondary" style="padding: 8px 15px; min-height: 40px; font-size: 12px;">خروج</a>
                 {% elif session.get('is_admin') %}
+                    <!-- اگر ادمین لاگین کرده باشد -->
                     <a href="{{ url_for('admin_panel') }}"><i class="fa-solid fa-shield-halved"></i> پنل ادمین</a>
                     <a href="{{ url_for('logout') }}" class="btn btn-secondary" style="padding: 8px 15px; min-height: 40px; font-size: 12px;">خروج</a>
                 {% else %}
+                    <!-- اگر کاربر مهمان باشد -->
                     <a href="{{ url_for('login') }}">ورود</a>
                     <a href="{{ url_for('register') }}" class="btn btn-primary" style="padding: 8px 15px; min-height: 40px; font-size: 13px;">ثبت‌نام</a>
                 {% endif %}
