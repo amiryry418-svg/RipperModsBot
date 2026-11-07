@@ -73,6 +73,11 @@ def init_db():
             # برای دیتابیس‌هایی که از قبل ساخته شدن
             cur.execute("ALTER TABLE site_users ADD COLUMN IF NOT EXISTS email TEXT UNIQUE")
             
+            # --- پاکسازی رکوردهای قدیمی قبل از تغییر کلید خارجی ---
+            cur.execute("DELETE FROM orders WHERE user_id NOT IN (SELECT id FROM site_users)")
+            cur.execute("DELETE FROM link_codes WHERE telegram_id NOT IN (SELECT id FROM site_users)")
+            # ---------------------------------------------------------------------
+
             # --- اصلاح کلید خارجی جدول link_codes برای اتصال به کاربران سایت ---
             cur.execute("""
                 DO $$ 
@@ -342,7 +347,6 @@ def buy_product(pid):
         
     with get_db() as conn:
         with conn.cursor() as cur:
-            # اینجا دیگه نیازی به چک کردن جدول site_users نیست چون session داره
             uid = session['site_user_id']
             
             cur.execute("SELECT 1 FROM orders WHERE user_id=%s AND product_id=%s AND status IN ('approved','delivered')", (uid, pid))
