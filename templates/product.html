@@ -6,10 +6,10 @@
 <section class="wrap mt-4 mb-4">
     
     <!-- بخش بالا: عکس و اطلاعات -->
-    <div class="grid-2" style="align-items: start; margin-bottom: 25px;">
+    <div class="grid-2" style="align-items: stretch; margin-bottom: 25px;">
         
         <!-- ستون راست: اطلاعات، قیمت و دکمه خرید -->
-        <div class="card" style="display: flex; flex-direction: column; height: 100%;">
+        <div class="card" style="display: flex; flex-direction: column; min-height: 450px;">
             <h2 style="font-size: 26px; color: var(--red); margin-bottom: 15px;">{{ product.name }}</h2>
             
             <div style="color: var(--muted); font-size: 15px; line-height: 1.8; flex-grow: 1; margin-bottom: 20px;">
@@ -40,11 +40,11 @@
         <!-- ستون چپ: عکس اصلی و ویدیو -->
         <div style="display: flex; flex-direction: column; gap: 20px;">
             <!-- عکس اصلی -->
-            <div class="card" style="padding: 0; overflow: hidden; display: flex; justify-content: center; align-items: center; background: var(--bg); min-height: 300px;">
+            <div class="card" style="padding: 0; overflow: hidden; display: flex; justify-content: center; align-items: center; background: var(--bg); flex-grow: 1; min-height: 300px;">
                 {% if product.cover_url %}
-                    <img src="{{ product.cover_url }}" alt="{{ product.name }}" style="width: 100%; max-height: 400px; object-fit: contain;">
+                    <img src="{{ product.cover_url }}" alt="{{ product.name }}" style="width: 100%; height: 100%; max-height: 400px; object-fit: cover;">
                 {% elif images %}
-                    <img src="{{ images[0].image_url }}" alt="{{ product.name }}" style="width: 100%; max-height: 400px; object-fit: contain;">
+                    <img src="{{ images[0].image_url }}" alt="{{ product.name }}" style="width: 100%; height: 100%; max-height: 400px; object-fit: cover;">
                 {% else %}
                     <div style="color: var(--muted); padding: 50px;">عکسی ثبت نشده است</div>
                 {% endif %}
@@ -70,7 +70,6 @@
             <div class="grid-3">
                 {% for img in images %}
                     {% if not img.is_cover %}
-                        <!-- عکس‌ها با کلیک باز میشوند -->
                         <img src="{{ img.image_url }}" class="gallery-img" data-src="{{ img.image_url }}" alt="گالری {{ loop.index }}" style="width: 100%; height: 200px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); cursor: pointer; transition: 0.3s;" onmouseover="this.style.borderColor='var(--red)'" onmouseout="this.style.borderColor='var(--line)'">
                     {% endif %}
                 {% endfor %}
