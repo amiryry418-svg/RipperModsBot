@@ -4,14 +4,24 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}RipperMods{% endblock %}</title>
-    <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <!-- Custom CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
 
-    <!-- Header -->
+    <!-- ستاره‌های پس‌زمینه -->
+    <div class="stars-bg"></div>
+
+    <!-- ماشین تصادفی در حال حرکت -->
+    <div class="car-animation" id="randomCar">
+        <!-- عکس با جاوااسکریپت عوض میشه -->
+    </div>
+
+    <!-- کاراکتر سایبرپانک RipperMods -->
+    <div class="anime-character" id="ripperCharacter">
+        <img src="https://png.pngtree.com/png-vector/20230902/ourmid/pngtree-cyberpunk-character-png-image_9944418.png" alt="Ripper Character" id="characterImg">
+    </div>
+
     <header class="topbar">
         <div class="wrap nav">
             <a class="brand" href="{{ url_for('index') }}">
@@ -34,7 +44,6 @@
         </div>
     </header>
 
-    <!-- Main Content -->
     <main>
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
@@ -49,7 +58,6 @@
         {% block content %}{% endblock %}
     </main>
 
-    <!-- Footer -->
     <footer>
         <div class="wrap">
             <p>© 2026 RipperMods — تمامی حقوق محفوظ است.</p>
@@ -60,5 +68,30 @@
         </div>
     </footer>
 
+    <!-- اسکریپت انتخاب ماشین تصادفی -->
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            // لیست عکس ماشین‌ها (PNG با پس‌زمینه شفاف)
+            var cars = [
+                "https://png.pngtree.com/png-vector/20240322/ourmid/pngtree-sports-car-png-image_12057563.png", // BMW
+                "https://png.pngtree.com/png-vector/20240322/ourmid/pngtree-car-png-image_12057561.png", // پژو
+                "https://png.pngtree.com/png-vector/20240322/ourmid/pngtree-sedan-car-png-image_12057562.png", // پراید
+                "https://png.pngtree.com/png-vector/20240322/ourmid/pngtree-classic-car-png-image_12057564.png" // ماشین کلاسیک
+            ];
+            
+            // انتخاب یک ماشین تصادفی
+            var randomCar = cars[Math.floor(Math.random() * cars.length)];
+            
+            // اضافه کردن عکس به دیو ماشین
+            var carDiv = document.getElementById("randomCar");
+            var img = document.createElement("img");
+            img.src = randomCar;
+            img.alt = "Car";
+            carDiv.appendChild(img);
+            
+            // انیمیشن پلک زدن برای کاراکتر (با CSS)
+            // ...
+        });
+    </script>
 </body>
 </html>
