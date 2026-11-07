@@ -192,28 +192,7 @@ footer { border-top: 1px solid var(--line); padding: 25px 0; color: var(--muted)
     .hero { padding: 30px 0; }
     .hero h1 { font-size: 32px; }
 }
-/* ==================================================== */
-/* --- انیمیشن‌های خفن سایبرپانک --- */
-/* ==================================================== */
-
-/* ۱. ماشین اسپرت نئونی */
-@keyframes driveCar {
-    0% { transform: translateX(-100vw) scaleX(1); }
-    100% { transform: translateX(100vw) scaleX(1); }
-}
-
-.car-animation {
-    position: fixed;
-    bottom: 30px;
-    left: 0;
-    z-index: 50;
-    animation: driveCar 15s linear infinite;
-    filter: drop-shadow(0 0 15px var(--red));
-    pointer-events: none;
-}
-
-/* ۲. کاراکتر انیمه/سایبرپانک */
-@keyframes hoverCharacter {
+ {
     0% { transform: translateY(0) rotate(0deg); }
     50% { transform: translateY(-15px) rotate(2deg); }
     100% { transform: translateY(0) rotate(0deg); }
@@ -275,4 +254,58 @@ footer { border-top: 1px solid var(--line); padding: 25px 0; color: var(--muted)
 @keyframes blink-caret {
     from, to { border-color: transparent }
     50% { border-color: var(--red); }
+}
+/* ==================================================== */
+/* --- انیمیشن‌های جدید با ماشین تصادفی و کاراکتر --- */
+/* ==================================================== */
+
+/* ۱. ماشین تصادفی در حال حرکت */
+@keyframes driveCar {
+    0% { transform: translateX(-100vw) scaleX(1); }
+    100% { transform: translateX(100vw) scaleX(1); }
+}
+
+.car-animation {
+    position: fixed;
+    bottom: 20px;
+    left: 0;
+    z-index: 50;
+    animation: driveCar 15s linear infinite;
+    pointer-events: none;
+}
+
+.car-animation img {
+    width: 200px; /* سایز ماشین */
+    height: auto;
+    filter: drop-shadow(0 0 15px var(--red)); /* افکت درخشش قرمز */
+}
+
+/* ۲. کاراکتر سایبرپانک RipperMods */
+@keyframes hoverCharacter {
+    0% { transform: translateY(0); }
+    50% { transform: translateY(-15px); }
+    100% { transform: translateY(0); }
+}
+
+/* انیمیشن پلک زدن (شبیه‌سازی) */
+@keyframes blink {
+    0%, 90%, 100% { transform: scaleY(1); }
+    95% { transform: scaleY(0.1); }
+}
+
+.anime-character {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 50;
+    animation: hoverCharacter 4s ease-in-out infinite;
+    pointer-events: none;
+    opacity: 0.9;
+}
+
+.anime-character img {
+    width: 150px; /* سایز کاراکتر */
+    height: auto;
+    filter: drop-shadow(0 0 20px var(--red)); /* افکت درخشش قرمز */
+    animation: blink 5s infinite; /* انیمیشن پلک زدن */
 }
