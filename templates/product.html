@@ -1,85 +1,44 @@
-<!DOCTYPE html>
-<html lang="fa" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ product.name }} | RipperMods</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css">
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+{% extends "base.html" %}
+
+{% block title %}{{ product.name }} | RipperMods{% endblock %}
+
+{% block content %}
+<section class="wrap mt-4 mb-4">
     
-    <!-- Structured Data برای سئو گوگل -->
-    <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "Product",
-      "name": "{{ product.name }}",
-      "image": "{{ product.cover_url }}",
-      "description": "{{ product.short_desc | striptags }}",
-      "brand": { "@type": "Brand", "name": "RipperMods" },
-      "offers": {
-        "@type": "Offer",
-        "url": "https://rippermods.ir/product/{{ product.id }}",
-        "priceCurrency": "IRR",
-        "price": "{{ product.price }}",
-        "availability": "https://schema.org/InStock"
-      }
-    }
-    </script>
-</head>
-<body>
-
-    <!-- هدر -->
-    <header class="topbar">
-        <div class="wrap nav">
-            <a class="brand" href="/">
-                <span class="brand-mark">R</span>
-                <span class="brand-name">RIPPER<span>MODS</span><small>CUSTOMER PORTAL</small></span>
-            </a>
-            <nav class="navlinks">
-                <a href="/#products">محصولات</a>
-                <a href="/login">ورود</a>
-                <a href="/register" class="btn btn-primary" style="padding: 8px 15px; min-height: 40px; font-size: 13px;">ثبت‌نام</a>
-            </nav>
-        </div>
-    </header>
-
-    <!-- محتوای اصلی -->
-    <main class="wrap" style="padding: 40px 0;">
+    <!-- بخش بالا: عکس و اطلاعات -->
+    <div class="grid-2" style="align-items: start; margin-bottom: 25px;">
         
-        <!-- پیام‌های فلش -->
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                {% for category, message in messages %}
-                    <div class="alert alert-{{ category }}">{{ message }}</div>
-                {% endfor %}
-            {% endif %}
-        {% endwith %}
-
-        <!-- چیدمان دو ستونه (توضیحات + عکس) -->
-        <div class="grid-2" style="align-items: start;">
-            <!-- اطلاعات و خرید -->
-            <div class="card">
-                <h2 style="font-size: 28px; color: var(--red); margin-bottom: 15px;">{{ product.name }}</h2>
-                <div class="product-desc" style="font-size: 15px; margin-bottom: 20px;">{{ product.short_desc | safe if product.short_desc else 'توضیحات کوتاهی برای این محصول ثبت نشده است.' }}</div>
-                
-                <div style="background: var(--bg); border-radius: 8px; padding: 15px; border: 1px solid var(--line);">
-                    <div class="flex justify-between items-center" style="margin-bottom: 15px;">
-                        <span class="text-muted">قیمت محصول:</span>
-                        <span class="product-price" style="color: var(--red); font-size: 26px;">{{ "{:,}".format(product.price|int) }} <span>تومان</span></span>
-                    </div>
-                    <form method="POST" action="{{ url_for('buy_product', pid=product.id) }}">
-                        {% if has_bought %}
-                            <button class="btn btn-block" style="background: var(--green); color: #000; cursor: not-allowed;" disabled>✅ شما این محصول را خریده‌اید</button>
-                        {% else %}
-                            <button type="submit" class="btn btn-primary btn-block">
-                                <i class="fa-solid fa-cart-shopping"></i> خرید محصول
-                            </button>
-                        {% endif %}
-                    </form>
-                    <a href="https://dl2.megadl.click/PS4-Hacked/GTAV/CUSA00419/BASE/" target="_blank" class="btn btn-secondary btn-block mt-2" style="font-size: 13px;">⬇️ دانلود نسخه بیس بازی (رایگان)</a>
-                </div>
+        <!-- ستون راست: اطلاعات، قیمت و دکمه خرید -->
+        <div class="card" style="display: flex; flex-direction: column; height: 100%;">
+            <h2 style="font-size: 26px; color: var(--red); margin-bottom: 15px;">{{ product.name }}</h2>
+            
+            <div style="color: var(--muted); font-size: 15px; line-height: 1.8; flex-grow: 1; margin-bottom: 20px;">
+                {{ product.short_desc | safe if product.short_desc else 'توضیحات کوتاهی برای این محصول ثبت نشده است.' }}
             </div>
+            
+            <!-- باکس قیمت و دکمه خرید (دکمه در انتها) -->
+            <div style="background: var(--bg); border-radius: 10px; padding: 20px; border: 1px solid var(--line); margin-top: auto;">
+                <div class="flex justify-between items-center" style="margin-bottom: 20px; border-bottom: 1px solid var(--line); padding-bottom: 15px;">
+                    <span style="color: var(--muted); font-size: 15px;">قیمت محصول:</span>
+                    <span style="font-size: 26px; font-weight: 900; color: var(--red);">{{ "{:,}".format(product.price|int) }} <span style="font-size: 14px; color: var(--muted); font-weight: normal;">تومان</span></span>
+                </div>
+                
+                <form method="POST" action="{{ url_for('buy_product', pid=product.id) }}">
+                    {% if has_bought %}
+                        <button class="btn btn-block" style="background: var(--green); color: #000; cursor: not-allowed;" disabled>✅ شما این محصول را خریده‌اید</button>
+                    {% else %}
+                        <button type="submit" class="btn btn-primary btn-block" style="font-size: 16px; padding: 15px;">
+                            <i class="fa-solid fa-cart-shopping"></i> خرید محصول
+                        </button>
+                    {% endif %}
+                </form>
+                
+                <a href="https://dl2.megadl.click/PS4-Hacked/GTAV/CUSA00419/BASE/" target="_blank" class="btn btn-secondary btn-block mt-2" style="font-size: 13px; min-height: 40px;">⬇️ دانلود نسخه بیس بازی (رایگان)</a>
+            </div>
+        </div>
 
+        <!-- ستون چپ: عکس اصلی و ویدیو -->
+        <div style="display: flex; flex-direction: column; gap: 20px;">
             <!-- عکس اصلی -->
             <div class="card" style="padding: 0; overflow: hidden; display: flex; justify-content: center; align-items: center; background: var(--bg); min-height: 300px;">
                 {% if product.cover_url %}
@@ -87,94 +46,93 @@
                 {% elif images %}
                     <img src="{{ images[0].image_url }}" alt="{{ product.name }}" style="width: 100%; max-height: 400px; object-fit: contain;">
                 {% else %}
-                    <div class="text-muted">عکسی ثبت نشده است</div>
+                    <div style="color: var(--muted); padding: 50px;">عکسی ثبت نشده است</div>
                 {% endif %}
             </div>
-        </div>
 
-        <!-- گالری تصاویر -->
-        <div class="card mt-4">
-            <h3 style="color: var(--red); margin-bottom: 20px;">🖼️ گالری تصاویر محصول</h3>
-            {% if images and images|length > 1 %}
-                <div class="grid-3">
-                    {% for img in images %}
-                        {% if not img.is_cover %}
-                            <img src="{{ img.image_url }}" class="gallery-img" data-src="{{ img.image_url }}" alt="گالری {{ loop.index }}" style="width: 100%; height: 200px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); cursor: pointer; transition: 0.3s;">
-                        {% endif %}
-                    {% endfor %}
-                </div>
-            {% else %}
-                <p class="text-muted">تصویر دیگری برای این محصول ثبت نشده است.</p>
+            <!-- ویدیو (اگر وجود داشته باشد) -->
+            {% if video_url %}
+            <div class="card">
+                <h3 style="color: var(--red); margin-bottom: 15px; font-size: 18px;">🎬 ویدیو معرفی</h3>
+                <video controls style="width: 100%; border-radius: 8px; outline: none;">
+                    <source src="{{ video_url }}" type="video/mp4">
+                    مرورگر شما از پخش ویدیو پشتیبانی نمی‌کند.
+                </video>
+            </div>
             {% endif %}
         </div>
-
-        <!-- بخش آموزش نصب -->
-        <div class="card mt-4">
-            <h3 style="color: var(--red); margin-bottom: 20px;">🎮 آموزش نصب پک GTA V (نسخه PS4/PS5)</h3>
-            <div style="color: var(--muted); line-height: 2; font-size: 15px;">
-                <p>پکیج‌های فعلی صرفاً روی نسخه PS4 بازی کار می‌کنند و روش نصب پکیج روی PS4 و PS5 یکسان است. به محض ساخت نسخه PS5، آموزش نصب آن هم اضافه خواهد شد.</p>
-                <p style="margin-top: 10px;"><strong style="color: var(--white);">1️⃣ بررسی نسخه:</strong> ابتدا از نسخه بیس بازی خود اطمینان حاصل کنید که با بیس پیشنهادی ما یکی باشد.</p>
-                <p><strong style="color: var(--white);">2️⃣ دانلود:</strong> برنامه (WinRAR) را داشته باشید. فایل‌های مربوط به ماد را دانلود کنید.</p>
-                <p><strong style="color: var(--white);">3️⃣ استخراج:</strong> همه فایل‌ها را در یک پوشه قرار دهید، سپس روی پارت ۱ کلیک راست کرده و Extract Here را انتخاب کنید. منتظر بمانید تا فایل اکسترکت شود.</p>
-                <p><strong style="color: var(--white);">4️⃣ انتقال:</strong> وقتی فایل واحد .pkg ساخته شد، یک هارد اکسترنال یا فلش حداقل ۶۴ گیگ با فرمت exFAT به کامپیوتر وصل کنید و فایل را داخل آن کپی کنید.</p>
-                <p><strong style="color: var(--white);">5️⃣ نصب روی کنسول:</strong> فلش را به کنسول وصل کنید. وارد مسیر Debug Settings / Package Installer شوید و فایل را نصب کنید.</p>
-            </div>
-        </div>
-
-        <!-- توضیحات کامل -->
-        {% if product.full_desc %}
-        <div class="card mt-4">
-            <h3 style="color: var(--red); margin-bottom: 20px;">📝 توضیحات بیشتر</h3>
-            <div style="color: var(--muted); line-height: 2; font-size: 15px;">{{ product.full_desc | safe }}</div>
-        </div>
-        {% endif %}
-
-        <!-- نظرات (به زودی) -->
-        <div class="card mt-4 text-center">
-            <h3 style="color: var(--red); margin-bottom: 10px;">💬 بخش نظرات و امتیازدهی</h3>
-            <p class="text-muted">این بخش به زودی فعال می‌شود...</p>
-        </div>
-
-    </main>
-
-    <!-- فوتر -->
-    <footer>
-        <div class="wrap">
-            <p>© 2026 RipperMods — تمامی حقوق محفوظ است.</p>
-        </div>
-    </footer>
-
-    <!-- مودال (پاپ‌آپ) عکس -->
-    <div id="imageModal" class="modal">
-        <span class="close">&times;</span>
-        <img class="modal-content" id="modalImg">
     </div>
 
-    <!-- اسکریپت پاپ‌آپ -->
-    <script>
-    document.addEventListener("DOMContentLoaded", function() {
-        var modal = document.getElementById("imageModal");
-        var modalImg = document.getElementById("modalImg");
-        var closeBtn = document.getElementsByClassName("close")[0];
-        var images = document.querySelectorAll(".gallery-img");
+    <!-- گالری تصاویر -->
+    <div class="card mb-4">
+        <h3 style="color: var(--red); margin-bottom: 20px;">🖼️ گالری تصاویر محصول</h3>
+        {% if images and images|length > 1 %}
+            <div class="grid-3">
+                {% for img in images %}
+                    {% if not img.is_cover %}
+                        <!-- عکس‌ها با کلیک باز میشوند -->
+                        <img src="{{ img.image_url }}" class="gallery-img" data-src="{{ img.image_url }}" alt="گالری {{ loop.index }}" style="width: 100%; height: 200px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); cursor: pointer; transition: 0.3s;" onmouseover="this.style.borderColor='var(--red)'" onmouseout="this.style.borderColor='var(--line)'">
+                    {% endif %}
+                {% endfor %}
+            </div>
+        {% else %}
+            <p style="color: var(--muted);">تصویر دیگری برای این محصول ثبت نشده است.</p>
+        {% endif %}
+    </div>
 
-        images.forEach(function(img) {
-            img.onclick = function() {
-                modal.style.display = "flex";
-                modalImg.src = this.dataset.src;
-            }
-        });
+    <!-- بخش آموزش نصب -->
+    <div class="card mb-4">
+        <h3 style="color: var(--red); margin-bottom: 20px;">🎮 آموزش نصب پک GTA V (نسخه PS4/PS5)</h3>
+        <div style="color: var(--muted); line-height: 2; font-size: 15px;">
+            <p>پکیج‌های فعلی صرفاً روی نسخه PS4 بازی کار می‌کنند و روش نصب پکیج روی PS4 و PS5 یکسان است. به محض ساخت نسخه PS5، آموزش نصب آن هم اضافه خواهد شد.</p>
+            <p style="margin-top: 10px;"><strong style="color: var(--white);">1️⃣ بررسی نسخه:</strong> ابتدا از نسخه بیس بازی خود اطمینان حاصل کنید که با بیس پیشنهادی ما یکی باشد.</p>
+            <p><strong style="color: var(--white);">2️⃣ دانلود:</strong> برنامه (WinRAR) را داشته باشید. فایل‌های مربوط به ماد را دانلود کنید.</p>
+            <p><strong style="color: var(--white);">3️⃣ استخراج:</strong> همه فایل‌ها را در یک پوشه قرار دهید، سپس روی پارت ۱ کلیک راست کرده و Extract Here را انتخاب کنید. منتظر بمانید تا فایل اکسترکت شود.</p>
+            <p><strong style="color: var(--white);">4️⃣ انتقال:</strong> وقتی فایل واحد .pkg ساخته شد، یک هارد اکسترنال یا فلش حداقل ۶۴ گیگ با فرمت exFAT به کامپیوتر وصل کنید و فایل را داخل آن کپی کنید.</p>
+            <p><strong style="color: var(--white);">5️⃣ نصب روی کنسول:</strong> فلش را به کنسول وصل کنید. وارد مسیر Debug Settings / Package Installer شوید و فایل را نصب کنید.</p>
+        </div>
+    </div>
 
-        closeBtn.onclick = function() {
-            modal.style.display = "none";
-        }
+    <!-- توضیحات کامل -->
+    {% if product.full_desc %}
+    <div class="card mb-4">
+        <h3 style="color: var(--red); margin-bottom: 20px;">📝 توضیحات بیشتر</h3>
+        <div style="color: var(--muted); line-height: 2; font-size: 15px;">{{ product.full_desc | safe }}</div>
+    </div>
+    {% endif %}
 
-        window.onclick = function(event) {
-            if (event.target == modal) {
-                modal.style.display = "none";
-            }
+</section>
+
+<!-- مودال (پاپ‌آپ) عکس -->
+<div id="imageModal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 1000; justify-content: center; align-items: center; backdrop-filter: blur(5px);">
+    <span id="closeModal" style="position: absolute; top: 20px; right: 35px; color: #fff; font-size: 40px; font-weight: bold; cursor: pointer;">&times;</span>
+    <img id="modalImg" style="max-width: 90%; max-height: 90vh; object-fit: contain; border-radius: 8px; box-shadow: 0 0 30px rgba(241, 39, 53, 0.5);">
+</div>
+
+<!-- اسکریپت پاپ‌آپ -->
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+    var modal = document.getElementById("imageModal");
+    var modalImg = document.getElementById("modalImg");
+    var closeBtn = document.getElementById("closeModal");
+    var images = document.querySelectorAll(".gallery-img");
+
+    images.forEach(function(img) {
+        img.onclick = function() {
+            modal.style.display = "flex";
+            modalImg.src = this.dataset.src;
         }
     });
-    </script>
-</body>
-</html>
+
+    closeBtn.onclick = function() {
+        modal.style.display = "none";
+    }
+
+    window.onclick = function(event) {
+        if (event.target == modal) {
+            modal.style.display = "none";
+        }
+    }
+});
+</script>
+{% endblock %}
