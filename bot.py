@@ -2037,6 +2037,25 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # --- Admin force-join management flows ---
     flow = context.user_data.get('flow')
+
+    # --- پیام همگانی (Broadcast) ---
+    if flow == 'broadcast' and is_super(u.id):
+        context.user_data.clear()
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT telegram_id FROM users')
+                users = [r['telegram_id'] for r in cur.fetchall()]
+        sent, failed = 0, 0
+        for target in users:
+            try:
+                await context.bot.send_message(target, text)
+                sent += 1
+                await asyncio.sleep(0.05)
+            except TelegramError:
+                failed += 1
+        await msg.reply_text(f'✅ ارسال شد: {sent}\n❌ ناموفق: {failed}', reply_markup=main_keyboard())
+        audit(u.id, 'broadcast', 'all', f'sent={sent} failed={failed}')
+        return
     if flow in ('adm_fj_chat_id', 'adm_fj_title', 'adm_fj_url') and not is_admin(u.id):
         context.user_data.clear()
         await msg.reply_text('دسترسی ندارید.')
@@ -2350,7 +2369,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             card = os.getenv('CARD_NUMBER', '5022291544593963').strip() or 'تنظیم نشده'
             holder = os.getenv('CARD_HOLDER', 'ریبعی نژاد').strip() or 'تنظیم نشده'
-            msg_text = (
+                        msg_text = (
                 f"برای افزایش موجودی، مبلغ {int(amount):,} تومان را به شماره‌ی حساب زیر واریز کنید 👇\n\n"
                 f"===================\n"
                 f"{card}\n"
@@ -2495,14 +2514,14 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 with conn.cursor() as cur:
                     cur.execute('INSERT INTO nostalgia_requests(user_id,game,platform,details) VALUES(%s,%s,%s,%s) RETURNING id', (u.id, game, platform, details))
                     rid = cur.fetchone()['id']
-                    cur.execute('SELECT reg_name, username, first_name, phone FROM users WHERE telegram_id=%s', (u.id,))
+                    cur.execute('SELECT reg_name, phone FROM users WHERE telegram_id=%s', (u.id,))
                     uinfo = cur.fetchone()
             context.user_data.clear()
             await msg.reply_text(f'درخواست پورت #{rid} ثبت شد.', reply_markup=main_keyboard())
 
-            name = (uinfo['reg_name'] or uinfo['first_name']) if uinfo else 'ناشناس'
-            phone = uinfo['phone'] if uinfo and uinfo['phone'] else 'نامشخص'
-            uname = f"@{uinfo['username']}" if uinfo and uinfo['username'] else 'بدون‌یوزرنیم'
+            name = uinfo['reg_name'] if uinfo else 'ناشناس'
+            phone = uinfo['phone'] if uinfo else 'نامشخص'
+            uname = f"@{u.username}" if u.username else 'بدون‌یوزرنیم'
 
             msg_to_admin = (
                 f"🎮 **درخواست پورت #{rid}**\n\n"
@@ -2569,29 +2588,15 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 with conn.cursor() as cur:
                     cur.execute("INSERT INTO support_messages(user_id,direction,message_text,file_id,file_type) VALUES(%s,'user_to_admin',%s,%s,%s) RETURNING id", (u.id, body, file_id, ftype))
                     sid = cur.fetchone()['id']
-                    cur.execute('SELECT reg_name, username, first_name, phone FROM users WHERE telegram_id=%s', (u.id,))
-                    uinfo = cur.fetchone()
             context.user_data.clear()
             await msg.reply_text('پیام شما برای پشتیبانی ارسال شد.', reply_markup=main_keyboard())
-
-            name = (uinfo['reg_name'] or uinfo['first_name']) if uinfo else 'ناشناس'
-            uname = f"@{uinfo['username']}" if uinfo and uinfo['username'] else 'بدون‌یوزرنیم'
-            phone = uinfo['phone'] if uinfo and uinfo['phone'] else 'نامشخص'
-            user_info = (
-                f"👤 کاربر: {name}\n"
-                f"🔗 یوزرنیم: {uname}\n"
-                f"🆔 آیدی: {u.id}\n"
-                f"📱 تلفن: {phone}\n\n"
-                f"📝 متن پیام:\n{body}"
-            )
-
             for aid in ADMIN_IDS:
                 try:
                     kb = InlineKeyboardMarkup([[InlineKeyboardButton('پاسخ به کاربر', callback_data=f'supportreply:{u.id}')]])
                     if file_id:
-                        await context.bot.send_photo(aid, file_id, caption=f'💬 پشتیبانی #{sid}\n\n{user_info}', reply_markup=kb)
+                        await context.bot.send_photo(aid, file_id, caption=f'پشتیبانی #{sid} از {u.id}\n{body}', reply_markup=kb)
                     else:
-                        await context.bot.send_message(aid, f'💬 پشتیبانی #{sid}\n\n{user_info}', reply_markup=kb)
+                        await context.bot.send_message(aid, f'پشتیبانی #{sid} از {u.id}\n{body}', reply_markup=kb)
                 except TelegramError:
                     pass
             return
@@ -2747,23 +2752,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.reply_text('پاسخ ارسال شد.')
             return
 
-        if flow == 'broadcast' and is_super(u.id):
-            context.user_data.clear()
-            with db() as conn:
-                with conn.cursor() as cur:
-                    cur.execute('SELECT telegram_id FROM users')
-                    users = [r['telegram_id'] for r in cur.fetchall()]
-            sent, failed = 0, 0
-            for target in users:
-                try:
-                    await context.bot.send_message(target, text)
-                    sent += 1
-                    await asyncio.sleep(0.05)
-                except TelegramError:
-                    failed += 1
-            await msg.reply_text(f'✅ ارسال شد: {sent}\n❌ ناموفق: {failed}', reply_markup=main_keyboard())
-            audit(u.id, 'broadcast', 'all', f'sent={sent} failed={failed}')
-            return
 
         if is_admin(u.id) and text.startswith('/admin'):
             await msg.reply_text('پنل مدیریت:', reply_markup=admin_kb()); return
