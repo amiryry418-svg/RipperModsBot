@@ -2369,7 +2369,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             card = os.getenv('CARD_NUMBER', '5022291544593963').strip() or 'تنظیم نشده'
             holder = os.getenv('CARD_HOLDER', 'ریبعی نژاد').strip() or 'تنظیم نشده'
-                        msg_text = (
+            msg_text = (
                 f"برای افزایش موجودی، مبلغ {int(amount):,} تومان را به شماره‌ی حساب زیر واریز کنید 👇\n\n"
                 f"===================\n"
                 f"{card}\n"
