@@ -1489,6 +1489,15 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         if not user or user['wallet'] < amount:
                             await q.message.reply_text('موجودی کیف پول کافی نیست.')
                             return
+                        # چک کردن وجود کاربر در site_users و ثبت خودکار در صورت نیاز
+                        cur.execute("SELECT id FROM site_users WHERE id=%s", (uid,))
+                        if not cur.fetchone():
+                            # گرفتن اطلاعات کاربر از جدول users
+                            cur.execute("SELECT reg_name, phone, username FROM users WHERE telegram_id=%s", (uid,))
+                            u = cur.fetchone()
+                            if u:
+                                cur.execute("INSERT INTO site_users (id, email, full_name, phone, telegram_id) VALUES (%s, %s, %s, %s, %s) ON CONFLICT (id) DO NOTHING",
+                                            (uid, f"user_{uid}@rippermods.ir", u['reg_name'] or u['username'] or 'کاربر', u['phone'] or f"user_{uid}", uid))
                         tc = _unique_tracking_code(cur, 'orders')
                         cur.execute("INSERT INTO orders(user_id,product_id,product_name,amount,payment_method,status,wallet_debited,coupon_id,tracking_code) VALUES(%s,%s,%s,%s,'wallet','approved',true,%s,%s) RETURNING id", (uid, pid, p['name'], amount, context.user_data.get('coupon_id'), tc))
                         order = cur.fetchone()['id']
@@ -1505,6 +1514,15 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 with db() as conn:
                     with conn.cursor() as cur:
+                        # چک کردن وجود کاربر در site_users و ثبت خودکار در صورت نیاز
+                        cur.execute("SELECT id FROM site_users WHERE id=%s", (uid,))
+                        if not cur.fetchone():
+                            # گرفتن اطلاعات کاربر از جدول users
+                            cur.execute("SELECT reg_name, phone, username FROM users WHERE telegram_id=%s", (uid,))
+                            u = cur.fetchone()
+                            if u:
+                                cur.execute("INSERT INTO site_users (id, email, full_name, phone, telegram_id) VALUES (%s, %s, %s, %s, %s) ON CONFLICT (id) DO NOTHING",
+                                            (uid, f"user_{uid}@rippermods.ir", u['reg_name'] or u['username'] or 'کاربر', u['phone'] or f"user_{uid}", uid))
                         tc = _unique_tracking_code(cur, 'orders')
                         cur.execute("INSERT INTO orders(user_id,product_id,product_name,amount,payment_method,status,coupon_id,tracking_code) VALUES(%s,%s,%s,%s,'card','pending',%s,%s) RETURNING id", (uid, pid, p['name'], amount, context.user_data.get('coupon_id'), tc))
                         order = cur.fetchone()['id']
@@ -2477,14 +2495,14 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 with conn.cursor() as cur:
                     cur.execute('INSERT INTO nostalgia_requests(user_id,game,platform,details) VALUES(%s,%s,%s,%s) RETURNING id', (u.id, game, platform, details))
                     rid = cur.fetchone()['id']
-                    cur.execute('SELECT reg_name, phone FROM users WHERE telegram_id=%s', (u.id,))
+                    cur.execute('SELECT reg_name, username, first_name, phone FROM users WHERE telegram_id=%s', (u.id,))
                     uinfo = cur.fetchone()
             context.user_data.clear()
             await msg.reply_text(f'درخواست پورت #{rid} ثبت شد.', reply_markup=main_keyboard())
 
-            name = uinfo['reg_name'] if uinfo else 'ناشناس'
-            phone = uinfo['phone'] if uinfo else 'نامشخص'
-            uname = f"@{u.username}" if u.username else 'بدون‌یوزرنیم'
+            name = (uinfo['reg_name'] or uinfo['first_name']) if uinfo else 'ناشناس'
+            phone = uinfo['phone'] if uinfo and uinfo['phone'] else 'نامشخص'
+            uname = f"@{uinfo['username']}" if uinfo and uinfo['username'] else 'بدون‌یوزرنیم'
 
             msg_to_admin = (
                 f"🎮 **درخواست پورت #{rid}**\n\n"
@@ -2551,15 +2569,29 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 with conn.cursor() as cur:
                     cur.execute("INSERT INTO support_messages(user_id,direction,message_text,file_id,file_type) VALUES(%s,'user_to_admin',%s,%s,%s) RETURNING id", (u.id, body, file_id, ftype))
                     sid = cur.fetchone()['id']
+                    cur.execute('SELECT reg_name, username, first_name, phone FROM users WHERE telegram_id=%s', (u.id,))
+                    uinfo = cur.fetchone()
             context.user_data.clear()
             await msg.reply_text('پیام شما برای پشتیبانی ارسال شد.', reply_markup=main_keyboard())
+
+            name = (uinfo['reg_name'] or uinfo['first_name']) if uinfo else 'ناشناس'
+            uname = f"@{uinfo['username']}" if uinfo and uinfo['username'] else 'بدون‌یوزرنیم'
+            phone = uinfo['phone'] if uinfo and uinfo['phone'] else 'نامشخص'
+            user_info = (
+                f"👤 کاربر: {name}\n"
+                f"🔗 یوزرنیم: {uname}\n"
+                f"🆔 آیدی: {u.id}\n"
+                f"📱 تلفن: {phone}\n\n"
+                f"📝 متن پیام:\n{body}"
+            )
+
             for aid in ADMIN_IDS:
                 try:
                     kb = InlineKeyboardMarkup([[InlineKeyboardButton('پاسخ به کاربر', callback_data=f'supportreply:{u.id}')]])
                     if file_id:
-                        await context.bot.send_photo(aid, file_id, caption=f'پشتیبانی #{sid} از {u.id}\n{body}', reply_markup=kb)
+                        await context.bot.send_photo(aid, file_id, caption=f'💬 پشتیبانی #{sid}\n\n{user_info}', reply_markup=kb)
                     else:
-                        await context.bot.send_message(aid, f'پشتیبانی #{sid} از {u.id}\n{body}', reply_markup=kb)
+                        await context.bot.send_message(aid, f'💬 پشتیبانی #{sid}\n\n{user_info}', reply_markup=kb)
                 except TelegramError:
                     pass
             return
