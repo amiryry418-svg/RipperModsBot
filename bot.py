@@ -131,6 +131,18 @@ def _gen_tracking_code(prefix: str = 'RM') -> str:
     return f"{prefix}-{random.randint(10000, 99999)}"
 
 
+
+def _ensure_site_user(cur, uid):
+    cur.execute("SELECT id FROM site_users WHERE id=%s", (uid,))
+    if not cur.fetchone():
+        cur.execute("SELECT reg_name, phone, username FROM users WHERE telegram_id=%s", (uid,))
+        user_row = cur.fetchone()
+        if user_row:
+            cur.execute(
+                "INSERT INTO site_users (id, email, full_name, phone, telegram_id) VALUES (%s, %s, %s, %s, %s) ON CONFLICT (id) DO NOTHING",
+                (uid, f"user_{uid}@rippermods.ir", user_row['reg_name'] or user_row['username'] or 'کاربر', user_row['phone'] or f"user_{uid}", uid)
+            )
+
 def _unique_tracking_code(cur, table: str) -> str:
     """Generate a unique tracking code for given table (orders/topups)."""
     for _ in range(20):
@@ -1431,6 +1443,7 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         if not user or user['wallet'] < amount:
                             await q.message.reply_text('موجودی کیف پول کافی نیست.')
                             return
+                        _ensure_site_user(cur, uid)
                         tc = _unique_tracking_code(cur, 'orders')
                         cur.execute("INSERT INTO orders(user_id,product_id,product_name,amount,payment_method,status,wallet_debited,is_upgrade,tracking_code) VALUES(%s,%s,'ارتقا پک ایرانیزه',%s,'wallet','approved',true,true,%s) RETURNING id", (uid, pid, amount, tc))
                         order = cur.fetchone()['id']
@@ -1444,6 +1457,7 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 with db() as conn:
                     with conn.cursor() as cur:
+                        _ensure_site_user(cur, uid)
                         tc = _unique_tracking_code(cur, 'orders')
                         cur.execute("INSERT INTO orders(user_id,product_id,product_name,amount,payment_method,status,is_upgrade,tracking_code) VALUES(%s,%s,'ارتقا پک ایرانیزه',%s,'card','pending',true,%s) RETURNING id", (uid, pid, amount, tc))
                         order = cur.fetchone()['id']
@@ -1932,6 +1946,7 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             await q.message.reply_text('موجودی کیف پول کافی نیست.')
                             return
                         cur.execute('UPDATE users SET wallet=wallet-%s WHERE telegram_id=%s', (amount, uid))
+                        _ensure_site_user(cur, uid)
                         tc = _unique_tracking_code(cur, 'orders')
                         cur.execute(
                             "INSERT INTO orders(user_id,product_id,product_name,amount,payment_method,status,wallet_debited,delivery_sent,is_upgrade,is_redownload,tracking_code) "
@@ -1956,6 +1971,7 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 order = None
                 with db() as conn:
                     with conn.cursor() as cur:
+                        _ensure_site_user(cur, uid)
                         tc = _unique_tracking_code(cur, 'orders')
                         cur.execute(
                             "INSERT INTO orders(user_id,product_id,product_name,amount,payment_method,status,is_upgrade,is_redownload,tracking_code) "
