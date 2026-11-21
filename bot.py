@@ -251,7 +251,7 @@ def db():
         raise RuntimeError('متغیر DATABASE_URL تنظیم نشده است.')
     kwargs = dict(connect_timeout=8, cursor_factory=RealDictCursor)
     if 'sslmode' not in DATABASE_URL:
-        kwargs['sslmode'] = 'require'
+        kwargs['sslmode'] = 'disable'
     conn = psycopg2.connect(DATABASE_URL, **kwargs)
     try:
         with conn:
