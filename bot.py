@@ -251,7 +251,7 @@ def db():
         raise RuntimeError('متغیر DATABASE_URL تنظیم نشده است.')
     kwargs = dict(connect_timeout=8, cursor_factory=RealDictCursor)
     if 'sslmode' not in DATABASE_URL:
-        kwargs['sslmode'] = 'disable'
+        kwargs['sslmode'] = 'require'
     conn = psycopg2.connect(DATABASE_URL, **kwargs)
     try:
         with conn:
@@ -310,16 +310,20 @@ def init_db():
             return
         schema = [
             """CREATE TABLE IF NOT EXISTS users (telegram_id BIGINT PRIMARY KEY, username TEXT, first_name TEXT, wallet NUMERIC(14,2) NOT NULL DEFAULT 0 CHECK(wallet >= 0), created_at TIMESTAMPTZ NOT NULL DEFAULT now(), last_seen TIMESTAMPTZ NOT NULL DEFAULT now(), reg_name TEXT, phone TEXT)""",
-            """CREATE TABLE IF NOT EXISTS site_users (
-               id BIGINT PRIMARY KEY,
-               email TEXT,
-               full_name TEXT,
-               phone TEXT,
-               telegram_id BIGINT,
-               created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-           )""",
             """ALTER TABLE users ADD COLUMN IF NOT EXISTS reg_name TEXT""",
             """ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT""",
+
+            # این جدول برای اتصال اطلاعات کاربران ربات به سفارش‌های سایت لازم است.
+            # باید قبل از orders و wallet_transactions ساخته شود.
+            """CREATE TABLE IF NOT EXISTS site_users (
+                id BIGINT PRIMARY KEY,
+                email TEXT,
+                full_name TEXT,
+                phone TEXT,
+                telegram_id BIGINT,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )""",
+
             """CREATE TABLE IF NOT EXISTS products (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', price NUMERIC(14,2) NOT NULL CHECK(price >= 0), active BOOLEAN NOT NULL DEFAULT true, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), upgrade_price NUMERIC(14,2) DEFAULT 0)""",
             """ALTER TABLE products ADD COLUMN IF NOT EXISTS upgrade_price NUMERIC(14,2) DEFAULT 0""",
             """CREATE TABLE IF NOT EXISTS orders (id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL REFERENCES users(telegram_id), product_id BIGINT REFERENCES products(id), product_name TEXT NOT NULL, amount NUMERIC(14,2) NOT NULL CHECK(amount >= 0), payment_method TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected','delivered','cancelled')), receipt_file_id TEXT, coupon_id BIGINT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), wallet_debited BOOLEAN NOT NULL DEFAULT false, delivery_sent BOOLEAN NOT NULL DEFAULT false, is_upgrade BOOLEAN NOT NULL DEFAULT false)""",
