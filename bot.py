@@ -310,6 +310,14 @@ def init_db():
             return
         schema = [
             """CREATE TABLE IF NOT EXISTS users (telegram_id BIGINT PRIMARY KEY, username TEXT, first_name TEXT, wallet NUMERIC(14,2) NOT NULL DEFAULT 0 CHECK(wallet >= 0), created_at TIMESTAMPTZ NOT NULL DEFAULT now(), last_seen TIMESTAMPTZ NOT NULL DEFAULT now(), reg_name TEXT, phone TEXT)""",
+            """CREATE TABLE IF NOT EXISTS site_users (
+               id BIGINT PRIMARY KEY,
+               email TEXT,
+               full_name TEXT,
+               phone TEXT,
+               telegram_id BIGINT,
+               created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+           )""",
             """ALTER TABLE users ADD COLUMN IF NOT EXISTS reg_name TEXT""",
             """ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT""",
             """CREATE TABLE IF NOT EXISTS products (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', price NUMERIC(14,2) NOT NULL CHECK(price >= 0), active BOOLEAN NOT NULL DEFAULT true, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), upgrade_price NUMERIC(14,2) DEFAULT 0)""",
