@@ -393,8 +393,7 @@ def init_db():
             )""",
             "CREATE INDEX IF NOT EXISTS idx_lottery_entries_lottery ON lottery_entries(lottery_id)",
             "CREATE INDEX IF NOT EXISTS idx_lottery_winners_lottery ON lottery_winners(lottery_id)",
-            """CREATE TABLE IF NOT EXISTS lottery_participants (id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL REFERENCES users(telegram_id) ON DELETE CASCADE, joined_at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE(user_id))""",
-            """CREATE TABLE IF NOT EXISTS reseller_requests (id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL REFERENCES users(telegram_id), full_name TEXT NOT NULL, phone TEXT NOT NULL, telegram_id_text TEXT NOT NULL, shop_name TEXT NOT NULL, shop_address TEXT NOT NULL, shop_phone TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected')), reviewed_by BIGINT, reviewed_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now())""",
+                    """CREATE TABLE IF NOT EXISTS reseller_requests (id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL REFERENCES users(telegram_id), full_name TEXT NOT NULL, phone TEXT NOT NULL, telegram_id_text TEXT NOT NULL, shop_name TEXT NOT NULL, shop_address TEXT NOT NULL, shop_phone TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected')), reviewed_by BIGINT, reviewed_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now())""",
             """CREATE TABLE IF NOT EXISTS resellers (user_id BIGINT PRIMARY KEY REFERENCES users(telegram_id), request_id BIGINT REFERENCES reseller_requests(id), approved_by BIGINT, approved_at TIMESTAMPTZ NOT NULL DEFAULT now(), active BOOLEAN NOT NULL DEFAULT true)""",
             """CREATE TABLE IF NOT EXISTS reseller_sales (id BIGSERIAL PRIMARY KEY, reseller_id BIGINT NOT NULL REFERENCES resellers(user_id), product_id BIGINT REFERENCES products(id), product_name TEXT NOT NULL, sale_amount NUMERIC(14,2) NOT NULL CHECK(sale_amount >= 0), commission_amount NUMERIC(14,2) NOT NULL DEFAULT 0, our_share_amount NUMERIC(14,2) NOT NULL DEFAULT 0, customer TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ NOT NULL DEFAULT now())""",
             "CREATE INDEX IF NOT EXISTS idx_reseller_requests_user_status ON reseller_requests(user_id,status)",
@@ -746,29 +745,6 @@ async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "⏳ توجه: این کد فقط <b>۲ دقیقه</b> اعتبار دارد. پس از این زمان، باید دوباره درخواست دهید."
     )
     await update.effective_message.reply_text(link_text, parse_mode='HTML')
-
-
-async def start_lottery(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    kb = InlineKeyboardMarkup([[InlineKeyboardButton('🎲 شرکت در قرعه‌کشی', callback_data='join_lottery')]])
-    await update.effective_message.reply_text("🎁 **قرعه‌کشی افتتاحیه**\n۳ عدد پک ایرانیزه اهدا می‌شه!", reply_markup=kb, parse_mode='Markdown')
-
-
-async def run_draw(context, uid, q):
-    with db() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT user_id FROM lottery_participants WHERE user_id != ALL(%s) ORDER BY RANDOM() LIMIT 3", (list(BANNED_IDS),))
-            winners = [r['user_id'] for r in cur.fetchall()]
-            if winners:
-                cur.execute("DELETE FROM lottery_participants")
-    if not winners:
-        await q.message.reply_text('شرکت‌کننده‌ای نیست.')
-        return
-    for wid in winners:
-        try:
-            await context.bot.send_message(wid, "🎉 تبریک! شما برنده پک ایرانیزه شدید! با پشتیبانی در ارتباط باشید.")
-        except TelegramError:
-            pass
-    await q.message.reply_text(f"✅ برندگان: {winners}")
 
 
 async def show_shop(update, context):
@@ -1405,24 +1381,6 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         return
                     cur.execute("INSERT INTO lottery_entries(lottery_id, user_id) VALUES(%s, %s) ON CONFLICT DO NOTHING", (lid, uid))
             await q.message.reply_text('✅ با موفقیت در قرعه‌کشی شرکت کردید! 🎉')
-            return
-
-        if data == 'join_lottery':
-            with db() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("SELECT 1 FROM lottery_participants WHERE user_id=%s", (uid,))
-                    if cur.fetchone():
-                        await q.message.reply_text('قبلاً شرکت کردی! 🌟')
-                        return
-                    cur.execute("INSERT INTO lottery_participants(user_id) VALUES(%s)", (uid,))
-            await q.message.reply_text('✅ شرکت کردی! 🎉')
-            return
-
-        if data == 'draw_lottery':
-            if not is_super(uid):
-                await q.message.reply_text('⛔ فقط ادمین اصلی!')
-                return
-            await run_draw(context, uid, q)
             return
 
         if data == 'locked':
@@ -3184,3 +3142,4 @@ else:
     except Exception:
         log.exception('init_db failed on import')
     _start_bot_thread_once()
+    
