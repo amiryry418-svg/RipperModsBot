@@ -369,6 +369,30 @@ def init_db():
                 created_at TIMESTAMPTZ NOT NULL DEFAULT now()
             )""",
             "CREATE INDEX IF NOT EXISTS idx_link_codes_telegram ON link_codes(telegram_id)",
+            """CREATE TABLE IF NOT EXISTS lotteries (
+                id BIGSERIAL PRIMARY KEY,
+                title TEXT NOT NULL,
+                prize_description TEXT NOT NULL,
+                deadline TIMESTAMPTZ NOT NULL,
+                winners_count INTEGER NOT NULL DEFAULT 1,
+                status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'finished')),
+                created_at TIMESTAMPTZ DEFAULT now()
+            )""",
+            """CREATE TABLE IF NOT EXISTS lottery_entries (
+                id BIGSERIAL PRIMARY KEY,
+                lottery_id BIGINT REFERENCES lotteries(id) ON DELETE CASCADE,
+                user_id BIGINT REFERENCES users(telegram_id) ON DELETE CASCADE,
+                joined_at TIMESTAMPTZ DEFAULT now(),
+                UNIQUE(lottery_id, user_id)
+            )""",
+            """CREATE TABLE IF NOT EXISTS lottery_winners (
+                id BIGSERIAL PRIMARY KEY,
+                lottery_id BIGINT REFERENCES lotteries(id) ON DELETE CASCADE,
+                user_id BIGINT REFERENCES users(telegram_id) ON DELETE CASCADE,
+                won_at TIMESTAMPTZ DEFAULT now()
+            )""",
+            "CREATE INDEX IF NOT EXISTS idx_lottery_entries_lottery ON lottery_entries(lottery_id)",
+            "CREATE INDEX IF NOT EXISTS idx_lottery_winners_lottery ON lottery_winners(lottery_id)",
             """CREATE TABLE IF NOT EXISTS lottery_participants (id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL REFERENCES users(telegram_id) ON DELETE CASCADE, joined_at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE(user_id))""",
             """CREATE TABLE IF NOT EXISTS reseller_requests (id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL REFERENCES users(telegram_id), full_name TEXT NOT NULL, phone TEXT NOT NULL, telegram_id_text TEXT NOT NULL, shop_name TEXT NOT NULL, shop_address TEXT NOT NULL, shop_phone TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected')), reviewed_by BIGINT, reviewed_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now())""",
             """CREATE TABLE IF NOT EXISTS resellers (user_id BIGINT PRIMARY KEY REFERENCES users(telegram_id), request_id BIGINT REFERENCES reseller_requests(id), approved_by BIGINT, approved_at TIMESTAMPTZ NOT NULL DEFAULT now(), active BOOLEAN NOT NULL DEFAULT true)""",
@@ -618,7 +642,7 @@ def main_keyboard():
         [KeyboardButton('🎮 درخواست پورت'), KeyboardButton('📦 درخواست پک اختصاصی')],
         [KeyboardButton('💬 پشتیبانی'), KeyboardButton('🆓 دریافت بیس رایگان')],
         [KeyboardButton('🔄 دریافت مجدد لینک'), KeyboardButton('🔄 اتصال مجدد / شروع مجدد')],
-        [KeyboardButton('🎁 قرعه‌کشی افتتاحیه'), KeyboardButton('🏪 پنل نمایندگی')],
+        [KeyboardButton('🎁 قرعه‌کشی‌ها'), KeyboardButton('🏪 پنل نمایندگی')],
         [KeyboardButton('👥 دعوت دوستان')]
     ], resize_keyboard=True)
 
@@ -638,7 +662,7 @@ def admin_kb():
         [InlineKeyboardButton('💰 تغییر موجودی', callback_data='adm:wallet'), InlineKeyboardButton('⚙️ تنظیمات پرداخت', callback_data='adm:settings')],
         [InlineKeyboardButton('💵 تغییر قیمت پک‌ها', callback_data='adm:edit_price'), InlineKeyboardButton('🔗 تغییر لینک محصولات', callback_data='adm:edit_links')],
         [InlineKeyboardButton('📣 پیام همگانی', callback_data='adm:broadcast'), InlineKeyboardButton('📜 سوابق مدیران', callback_data='adm:audit')],
-        [InlineKeyboardButton('🎁 قرعه‌کشی', callback_data='draw_lottery')],
+        [InlineKeyboardButton('🎁 مدیریت قرعه‌کشی', callback_data='adm:lottery')],
         [InlineKeyboardButton('📢 مدیریت عضویت اجباری', callback_data='adm:forcejoin')]
     ])
 
@@ -1269,6 +1293,120 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.message.reply_text('نتیجه بررسی درخواست ثبت شد.')
             return
 
+        if data == 'lottery_create':
+            if not is_admin(uid):
+                await q.message.reply_text('دسترسی ندارید.')
+                return
+            context.user_data['flow'] = 'lottery_title'
+            await q.message.reply_text('عنوان قرعه‌کشی را وارد کنید (مثلاً: قرعه‌کشی افتتاحیه):')
+            return
+
+        if data.startswith('lottery_view:'):
+            if not is_admin(uid):
+                await q.message.reply_text('دسترسی ندارید.')
+                return
+            lid = int(data.split(':')[1])
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT * FROM lotteries WHERE id=%s", (lid,))
+                    l = cur.fetchone()
+                    if not l:
+                        await q.message.reply_text('قرعه‌کشی پیدا نشد.')
+                        return
+                    cur.execute("SELECT COUNT(*) as cnt FROM lottery_entries WHERE lottery_id=%s", (lid,))
+                    count = cur.fetchone()['cnt']
+                    cur.execute(
+                        "SELECT lw.user_id, u.reg_name, u.username, u.first_name "
+                        "FROM lottery_winners lw LEFT JOIN users u ON lw.user_id = u.telegram_id "
+                        "WHERE lw.lottery_id=%s ORDER BY lw.id",
+                        (lid,)
+                    )
+                    winners_data = cur.fetchall()
+            if l['status'] == 'finished':
+                winner_lines = []
+                for w in winners_data:
+                    name = w['reg_name'] or w['first_name'] or 'ناشناس'
+                    uname = f"@{w['username']}" if w['username'] else str(w['user_id'])
+                    winner_lines.append(f"- {name} ({uname})")
+                winner_info = "\n🏆 برندگان:\n" + "\n".join(winner_lines) if winner_lines else ""
+                await q.message.reply_text(
+                    f"🎁 **{l['title']}**\n💰 جایزه: {l['prize_description']}\n"
+                    f"👥 شرکت‌کنندگان: {count}\n🔴 وضعیت: پایان یافته{winner_info}",
+                    parse_mode='Markdown'
+                )
+            else:
+                kb = InlineKeyboardMarkup([
+                    [InlineKeyboardButton('🎲 انتخاب برنده‌ها و پایان', callback_data=f'lottery_draw:{lid}')],
+                    [InlineKeyboardButton('🔙 بازگشت', callback_data='adm:lottery')]
+                ])
+                await q.message.reply_text(
+                    f"🎁 **{l['title']}**\n💰 جایزه: {l['prize_description']}\n"
+                    f"👥 شرکت‌کنندگان: {count}\n🏆 تعداد برنده‌ها: {l['winners_count']}\n"
+                    f"🟢 وضعیت: فعال",
+                    reply_markup=kb,
+                    parse_mode='Markdown'
+                )
+            return
+
+        if data.startswith('lottery_draw:'):
+            if not is_admin(uid):
+                await q.message.reply_text('دسترسی ندارید.')
+                return
+            lid = int(data.split(':')[1])
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT winners_count, title, status FROM lotteries WHERE id=%s FOR UPDATE", (lid,))
+                    l = cur.fetchone()
+                    if not l:
+                        await q.message.reply_text('قرعه‌کشی پیدا نشد.')
+                        return
+                    if l['status'] != 'active':
+                        await q.message.reply_text('این قرعه‌کشی قبلاً پایان یافته است.')
+                        return
+                    cur.execute("SELECT user_id FROM lottery_entries WHERE lottery_id=%s", (lid,))
+                    entries = [e['user_id'] for e in cur.fetchall()]
+                    if not entries:
+                        await q.message.reply_text('هیچ شرکت‌کننده‌ای وجود ندارد.')
+                        return
+                    winners = random.sample(entries, min(l['winners_count'], len(entries)))
+                    winner_info = []
+                    for wid in winners:
+                        cur.execute("INSERT INTO lottery_winners(lottery_id, user_id) VALUES(%s, %s)", (lid, wid))
+                        cur.execute("SELECT reg_name, username, first_name FROM users WHERE telegram_id=%s", (wid,))
+                        u_row = cur.fetchone()
+                        name = u_row['reg_name'] or u_row['first_name'] or 'ناشناس'
+                        uname = f"@{u_row['username']}" if u_row['username'] else str(wid)
+                        winner_info.append(f"- {name} ({uname})")
+                    cur.execute("UPDATE lotteries SET status='finished' WHERE id=%s", (lid,))
+            for wid in winners:
+                try:
+                    await context.bot.send_message(wid, f"🎉 تبریک! شما برنده قرعه‌کشی «{l['title']}» شدید! با پشتیبانی در تماس باشید.")
+                except Exception:
+                    pass
+            await q.message.reply_text(f"✅ {len(winners)} برنده انتخاب شدند:\n" + "\n".join(winner_info))
+            return
+
+        if data.startswith('lottery_join:'):
+            lid = int(data.split(':')[1])
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT status, deadline FROM lotteries WHERE id=%s", (lid,))
+                    lottery = cur.fetchone()
+                    if not lottery:
+                        await q.message.reply_text('قرعه‌کشی پیدا نشد.')
+                        return
+                    from datetime import datetime, timezone
+                    if lottery['status'] != 'active' or lottery['deadline'] <= datetime.now(timezone.utc):
+                        await q.message.reply_text('مهلت شرکت در این قرعه‌کشی به پایان رسیده است.')
+                        return
+                    cur.execute("SELECT 1 FROM lottery_entries WHERE lottery_id=%s AND user_id=%s", (lid, uid))
+                    if cur.fetchone():
+                        await q.message.reply_text('شما قبلاً در این قرعه‌کشی شرکت کرده‌اید.')
+                        return
+                    cur.execute("INSERT INTO lottery_entries(lottery_id, user_id) VALUES(%s, %s) ON CONFLICT DO NOTHING", (lid, uid))
+            await q.message.reply_text('✅ با موفقیت در قرعه‌کشی شرکت کردید! 🎉')
+            return
+
         if data == 'join_lottery':
             with db() as conn:
                 with conn.cursor() as cur:
@@ -1659,6 +1797,26 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             if action in ('coupon', 'wallet', 'edit_links', 'edit_price') and not is_super(uid):
                 await q.message.reply_text('⛔ این بخش فقط برای مدیر اصلی است.')
+                return
+
+            if action == 'lottery':
+                with db() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT * FROM lotteries ORDER BY created_at DESC LIMIT 10")
+                        lotteries = cur.fetchall()
+                kb_rows = [[InlineKeyboardButton('➕ ساخت قرعه‌کشی جدید', callback_data='lottery_create')]]
+                for l in lotteries:
+                    status_fa = '🟢 فعال' if l['status'] == 'active' else '🔴 پایان یافته'
+                    kb_rows.append([InlineKeyboardButton(
+                        f"{status_fa} | {l['title']} ({l['winners_count']} برنده)",
+                        callback_data=f"lottery_view:{l['id']}"
+                    )])
+                kb = InlineKeyboardMarkup(kb_rows)
+                await q.message.reply_text(
+                    '🎁 **مدیریت قرعه‌کشی‌ها**\nلطفاً یکی از گزینه‌ها را انتخاب کنید:',
+                    reply_markup=kb,
+                    parse_mode='Markdown'
+                )
                 return
 
             if action == 'forcejoin':
@@ -2207,6 +2365,79 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_force_join_panel(msg)
         return
 
+    # --- Lottery creation flows ---
+    if flow == 'lottery_title' and is_admin(u.id):
+        context.user_data['lottery_title'] = text
+        context.user_data['flow'] = 'lottery_prize'
+        await msg.reply_text('جایزه قرعه‌کشی را وارد کنید (مثلاً: یک عدد پک ایرانیزه V2):')
+        return
+
+    if flow == 'lottery_prize' and is_admin(u.id):
+        context.user_data['lottery_prize'] = text
+        context.user_data['flow'] = 'lottery_winners_count'
+        await msg.reply_text('تعداد برنده‌ها را وارد کنید (مثلاً ۵):')
+        return
+
+    if flow == 'lottery_winners_count' and is_admin(u.id):
+        try:
+            winners_count = int(text)
+            if winners_count <= 0:
+                raise ValueError
+            context.user_data['lottery_winners'] = winners_count
+            context.user_data['flow'] = 'lottery_deadline'
+            await msg.reply_text('مهلت شرکت در قرعه‌کشی چند روز دیگر باشد؟ (فقط عدد، مثلاً 7):')
+        except ValueError:
+            await msg.reply_text('عدد معتبر نیست. دوباره تلاش کنید.')
+        return
+
+    if flow == 'lottery_deadline' and is_admin(u.id):
+        try:
+            days = int(text)
+            if days <= 0:
+                raise ValueError
+            title = context.user_data.pop('lottery_title')
+            prize = context.user_data.pop('lottery_prize')
+            winners_count = context.user_data.pop('lottery_winners')
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO lotteries(title, prize_description, winners_count, deadline) "
+                        "VALUES(%s, %s, %s, now() + (%s * interval '1 day'))",
+                        (title, prize, winners_count, days)
+                    )
+            await msg.reply_text(
+                f'✅ قرعه‌کشی «{title}» با {winners_count} برنده و مهلت {days} روز ساخته شد.',
+                reply_markup=main_keyboard()
+            )
+        except ValueError:
+            await msg.reply_text('عدد معتبر نیست. دوباره تلاش کنید.')
+        context.user_data.clear()
+        return
+
+    # --- User lottery list ---
+    if text == '🎁 قرعه‌کشی‌ها':
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT * FROM lotteries WHERE status='active' AND deadline > now() ORDER BY created_at DESC")
+                active = cur.fetchall()
+        if not active:
+            await msg.reply_text('در حال حاضر هیچ قرعه‌کشی فعالی وجود ندارد.', reply_markup=main_keyboard())
+            return
+        for l in active:
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT 1 FROM lottery_entries WHERE lottery_id=%s AND user_id=%s", (l['id'], u.id))
+                    joined = cur.fetchone()
+            kb = InlineKeyboardMarkup([[InlineKeyboardButton('🎲 شرکت در قرعه‌کشی', callback_data=f'lottery_join:{l["id"]}')]])
+            status = '✅ شما قبلاً شرکت کرده‌اید' if joined else '👇 برای شرکت کلیک کنید'
+            await msg.reply_text(
+                f"🎁 **{l['title']}**\n💰 جایزه: {l['prize_description']}\n"
+                f"🏆 تعداد برنده‌ها: {l['winners_count']}\n⏳ مهلت: {_fa_dt(l['deadline'])}\n{status}",
+                reply_markup=kb,
+                parse_mode='Markdown'
+            )
+        return
+
     # --- Registration Flow ---
     if flow == 'reg_name':
         context.user_data['reg_name'] = text
@@ -2295,9 +2526,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # --- Normal Flows ---
     if text == '🏪 پنل نمایندگی':
         await reseller_menu(update, context); return
-    if text == '🎁 قرعه‌کشی افتتاحیه':
-        await start_lottery(update, context)
-        return
     if text == '🛍 فروشگاه':
         await show_shop(update, context); return
     if text == '💰 کیف پول':
